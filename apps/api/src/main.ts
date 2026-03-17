@@ -11,6 +11,8 @@ async function bootstrap() {
     API_HOST: process.env.API_HOST ?? '0.0.0.0',
     API_PORT: process.env.API_PORT ?? '3000',
     APP_DISPLAY_NAME: process.env.APP_DISPLAY_NAME ?? 'Event App',
+    DATABASE_URL:
+      process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/event_app?schema=public',
   });
 
   const app = await NestFactory.create(AppModule);

@@ -4,6 +4,7 @@ export type AppEnv = {
   API_HOST: string;
   API_PORT: number;
   APP_DISPLAY_NAME: string;
+  DATABASE_URL: string;
 };
 
 const requiredKeys: Array<keyof Omit<AppEnv, 'API_PORT'>> = [
@@ -11,6 +12,7 @@ const requiredKeys: Array<keyof Omit<AppEnv, 'API_PORT'>> = [
   'APP_ENV',
   'API_HOST',
   'APP_DISPLAY_NAME',
+  'DATABASE_URL',
 ];
 
 export function validateEnv(config: Record<string, unknown>): AppEnv {
@@ -27,11 +29,24 @@ export function validateEnv(config: Record<string, unknown>): AppEnv {
     throw new Error('API_PORT must be a positive integer');
   }
 
+  const databaseUrl = String(config.DATABASE_URL);
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(databaseUrl);
+  } catch {
+    throw new Error('DATABASE_URL must be a valid URL');
+  }
+
+  if (!['postgresql:', 'postgres:'].includes(parsedUrl.protocol)) {
+    throw new Error('DATABASE_URL must use the PostgreSQL protocol');
+  }
+
   return {
     NODE_ENV: String(config.NODE_ENV),
     APP_ENV: String(config.APP_ENV),
     API_HOST: String(config.API_HOST),
     API_PORT: port,
     APP_DISPLAY_NAME: String(config.APP_DISPLAY_NAME),
+    DATABASE_URL: databaseUrl,
   };
 }
