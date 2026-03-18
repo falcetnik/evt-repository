@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
-import { ApiBody, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { ApiBody, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { AuthUser } from '../auth/auth-user.type';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { DevAuthGuard } from '../auth/dev-auth.guard';
 import { CreateEventDto } from './dto/create-event.dto';
 import { ReplaceEventRemindersDto } from './dto/replace-event-reminders.dto';
+import { ListEventsQueryDto } from './dto/list-events.query.dto';
 import { EventsService } from './events.service';
 
 @ApiTags('events')
@@ -20,6 +21,17 @@ export class EventsController {
   @ApiResponse({ status: 201, description: 'Event created' })
   createEvent(@CurrentUser() currentUser: AuthUser, @Body() dto: CreateEventDto) {
     return this.eventsService.createEvent(currentUser, dto);
+  }
+
+
+  @Get()
+  @ApiOperation({ summary: 'List organizer events for home screen cards' })
+  @ApiQuery({ name: 'scope', required: false, enum: ['upcoming', 'past', 'all'], description: 'Defaults to upcoming' })
+  @ApiResponse({ status: 200, description: 'Organizer events loaded' })
+  @ApiResponse({ status: 400, description: 'Invalid scope query value' })
+  @ApiResponse({ status: 401, description: 'Unauthorized organizer' })
+  listEvents(@CurrentUser() currentUser: AuthUser, @Query() query: ListEventsQueryDto) {
+    return this.eventsService.listEvents(currentUser, query.scope);
   }
 
   @Get(':eventId')
