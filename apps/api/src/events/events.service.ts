@@ -3,6 +3,7 @@ import { AttendeeResponseStatus } from '@prisma/client';
 import { buildRsvpSummary, deriveAttendanceState, sortAttendeesForOrganizer } from '../attendance/attendance-summary';
 import type { AuthUser } from '../auth/auth-user.type';
 import { PrismaService } from '../database/prisma.service';
+import { buildReminderPlan } from './reminders/reminder-schedule';
 import { CreateEventDto } from './dto/create-event.dto';
 
 @Injectable()
@@ -26,35 +27,16 @@ export class EventsService {
   }
 
   async getEventById(currentUser: AuthUser, eventId: string) {
-    const event = await this.prisma.client.event.findFirst({
-      where: {
-        id: eventId,
-        organizerUserId: currentUser.id,
-      },
-    });
-
-    if (!event) {
-      throw new NotFoundException('Event not found');
-    }
+    const event = await this.findOwnedEvent(currentUser, eventId);
 
     return this.toResponse(event);
   }
 
   async getAttendees(currentUser: AuthUser, eventId: string) {
-    const event = await this.prisma.client.event.findFirst({
-      where: {
-        id: eventId,
-        organizerUserId: currentUser.id,
-      },
-      select: {
-        id: true,
-        capacityLimit: true,
-      },
+    const event = await this.findOwnedEvent(currentUser, eventId, {
+      id: true,
+      capacityLimit: true,
     });
-
-    if (!event) {
-      throw new NotFoundException('Event not found');
-    }
 
     const attendees = await this.prisma.client.eventAttendee.findMany({
       where: { eventId },
@@ -88,6 +70,117 @@ export class EventsService {
       summary,
       attendees: attendeeResponses,
     };
+  }
+
+  async replaceEventReminders(currentUser: AuthUser, eventId: string, offsetsMinutes: number[]) {
+    const event = await this.findOwnedEvent(currentUser, eventId, {
+      id: true,
+      startsAt: true,
+      timezone: true,
+    });
+
+    const reminderPlan = buildReminderPlan({
+      startsAt: event.startsAt,
+      offsetsMinutes,
+      now: new Date(),
+    });
+
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.eventReminder.deleteMany({ where: { eventId: event.id } });
+
+      if (reminderPlan.length > 0) {
+        await Promise.all(
+          reminderPlan.map((reminder) =>
+            tx.eventReminder.create({
+              data: {
+                eventId: event.id,
+                offsetMinutes: reminder.offsetMinutes,
+                sendAt: reminder.sendAt,
+              },
+            }),
+          ),
+        );
+      }
+    });
+
+    const reminders = await this.listEventReminders(event.id);
+
+    return this.toReminderScheduleResponse({
+      eventId: event.id,
+      startsAt: event.startsAt,
+      timezone: event.timezone,
+      reminders,
+    });
+  }
+
+  async getEventReminders(currentUser: AuthUser, eventId: string) {
+    const event = await this.findOwnedEvent(currentUser, eventId, {
+      id: true,
+      startsAt: true,
+      timezone: true,
+    });
+
+    const reminders = await this.listEventReminders(event.id);
+
+    return this.toReminderScheduleResponse({
+      eventId: event.id,
+      startsAt: event.startsAt,
+      timezone: event.timezone,
+      reminders,
+    });
+  }
+
+  private async listEventReminders(eventId: string) {
+    return this.prisma.client.eventReminder.findMany({
+      where: { eventId },
+      orderBy: [{ sendAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        offsetMinutes: true,
+        sendAt: true,
+      },
+    });
+  }
+
+  private toReminderScheduleResponse(params: {
+    eventId: string;
+    startsAt: Date;
+    timezone: string;
+    reminders: Array<{ id: string; offsetMinutes: number; sendAt: Date }>;
+  }) {
+    const reminders = params.reminders.map((reminder) => ({
+      reminderId: reminder.id,
+      offsetMinutes: reminder.offsetMinutes,
+      sendAt: reminder.sendAt.toISOString(),
+    }));
+
+    return {
+      eventId: params.eventId,
+      startsAt: params.startsAt.toISOString(),
+      timezone: params.timezone,
+      reminders,
+      total: reminders.length,
+    };
+  }
+
+  private async findOwnedEvent<TSelect extends Record<string, boolean> | undefined = undefined>(
+    currentUser: AuthUser,
+    eventId: string,
+    select?: TSelect,
+  ) {
+    const event = await this.prisma.client.event.findFirst({
+      where: {
+        id: eventId,
+        organizerUserId: currentUser.id,
+      },
+      ...(select ? { select } : {}),
+    });
+
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    return event;
   }
 
   private toResponse(event: {

@@ -196,3 +196,48 @@ URLs used:
 - Public invite resolution: `GET http://localhost:3000/api/v1/invite-links/:token`
 - Public RSVP submit: `POST http://localhost:3000/api/v1/invite-links/:token/rsvp`
 - Organizer attendee list: `GET http://localhost:3000/api/v1/events/:eventId/attendees`
+
+## EVT-7 manual reminder schedule verification (PowerShell)
+Use the seeded `DEV_USER_ID` from `pnpm --filter @event-app/api db:seed:dev-user` output.
+
+```powershell
+$headers = @{ 'x-dev-user-id' = 'local-organizer-dev-user'; 'Content-Type' = 'application/json' }
+
+$eventBody = @{
+  title = 'EVT-7 Reminder Test'
+  startsAt = '2026-03-25T18:00:00.000Z'
+  timezone = 'Europe/Moscow'
+} | ConvertTo-Json
+
+$event = Invoke-RestMethod -Method Post `
+  -Uri 'http://localhost:3000/api/v1/events' `
+  -Headers $headers `
+  -Body $eventBody
+
+$replaceBody = @{ offsetsMinutes = @(1440, 120, 30) } | ConvertTo-Json
+Invoke-RestMethod -Method Put `
+  -Uri ("http://localhost:3000/api/v1/events/{0}/reminders" -f $event.id) `
+  -Headers $headers `
+  -Body $replaceBody
+
+Invoke-RestMethod -Method Get `
+  -Uri ("http://localhost:3000/api/v1/events/{0}/reminders" -f $event.id) `
+  -Headers $headers
+
+$clearBody = @{ offsetsMinutes = @() } | ConvertTo-Json
+Invoke-RestMethod -Method Put `
+  -Uri ("http://localhost:3000/api/v1/events/{0}/reminders" -f $event.id) `
+  -Headers $headers `
+  -Body $clearBody
+```
+
+Expected after clear:
+- `total = 0`
+- `reminders = []`
+
+Rerun EVT-7 tests:
+
+```powershell
+pnpm --filter @event-app/api test -- --runTestsByPath test/event-reminders.schedule.spec.ts
+pnpm --filter @event-app/api test:integration -- --runInBand --runTestsByPath test/event-reminders.integration-spec.ts
+```
