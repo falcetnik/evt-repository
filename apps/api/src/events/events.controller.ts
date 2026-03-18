@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { ApiBody, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { AuthUser } from '../auth/auth-user.type';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { DevAuthGuard } from '../auth/dev-auth.guard';
 import { CreateEventDto } from './dto/create-event.dto';
+import { ReplaceEventRemindersDto } from './dto/replace-event-reminders.dto';
 import { EventsService } from './events.service';
 
 @ApiTags('events')
@@ -35,5 +36,29 @@ export class EventsController {
   @ApiResponse({ status: 404, description: 'Event not found' })
   getAttendees(@CurrentUser() currentUser: AuthUser, @Param('eventId') eventId: string) {
     return this.eventsService.getAttendees(currentUser, eventId);
+  }
+
+  @Put(':eventId/reminders')
+  @ApiOperation({ summary: 'Replace organizer reminder schedule for event' })
+  @ApiBody({ type: ReplaceEventRemindersDto })
+  @ApiResponse({ status: 200, description: 'Reminder schedule replaced' })
+  @ApiResponse({ status: 400, description: 'Validation or reminder timing failure' })
+  @ApiResponse({ status: 401, description: 'Unauthorized organizer' })
+  @ApiResponse({ status: 404, description: 'Event not found' })
+  replaceEventReminders(
+    @CurrentUser() currentUser: AuthUser,
+    @Param('eventId') eventId: string,
+    @Body() dto: ReplaceEventRemindersDto,
+  ) {
+    return this.eventsService.replaceEventReminders(currentUser, eventId, dto.offsetsMinutes);
+  }
+
+  @Get(':eventId/reminders')
+  @ApiOperation({ summary: 'Read organizer reminder schedule for event' })
+  @ApiResponse({ status: 200, description: 'Reminder schedule loaded' })
+  @ApiResponse({ status: 401, description: 'Unauthorized organizer' })
+  @ApiResponse({ status: 404, description: 'Event not found' })
+  getEventReminders(@CurrentUser() currentUser: AuthUser, @Param('eventId') eventId: string) {
+    return this.eventsService.getEventReminders(currentUser, eventId);
   }
 }

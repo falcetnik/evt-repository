@@ -72,6 +72,7 @@ model Event {
   organizer       User            @relation("event_organizer", fields: [organizerUserId], references: [id], onDelete: Cascade)
   inviteLinks     InviteLink[]
   attendees       EventAttendee[]
+  reminders       EventReminder[]
 
   @@index([organizerUserId])
   @@map("events")
@@ -110,4 +111,19 @@ model EventAttendee {
   @@index([eventId])
   @@index([userId])
   @@map("event_attendees")
+}
+
+
+model EventReminder {
+  id            String   @id @default(cuid())
+  eventId       String   @map("event_id")
+  offsetMinutes Int      @map("offset_minutes")
+  sendAt        DateTime @map("send_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  event         Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, offsetMinutes])
+  @@index([sendAt])
+  @@map("event_reminders")
 }
