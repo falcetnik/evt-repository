@@ -6,6 +6,7 @@ describe('Prisma core schema integration', () => {
   beforeAll(async () => {
     client = new Client({ connectionString: process.env.DATABASE_URL });
     await client.connect();
+    await client.query(`SET search_path TO event_app_test`);
   });
 
   beforeEach(async () => {
