@@ -42,10 +42,10 @@ Expected output example:
 DEV_USER_ID=local-organizer-dev-user
 ```
 
-## Run EVT-3 automated checks
+## Run EVT-4 automated checks
 ```powershell
-pnpm --filter @event-app/api test -- --runTestsByPath test/create-event.dto.spec.ts
-pnpm --filter @event-app/api test:integration -- --runInBand --runTestsByPath test/events.integration-spec.ts
+pnpm --filter @event-app/api test -- --runTestsByPath test/invite-link-url.spec.ts
+pnpm --filter @event-app/api test:integration -- --runInBand --runTestsByPath test/invite-links.integration-spec.ts
 pnpm --filter @event-app/api typecheck
 ```
 
@@ -100,3 +100,41 @@ Invoke-RestMethod -Method POST `
 ```powershell
 docker compose down
 ```
+
+## Manual invite-link verification (PowerShell)
+Use the seeded `DEV_USER_ID` from `db:seed:dev-user` output. Ensure `PUBLIC_INVITE_BASE_URL=http://localhost:3000/api/v1/invite-links` in both `apps/api/.env` and `apps/api/.env.test`.
+
+```powershell
+$headers = @{ 'x-dev-user-id' = 'local-organizer-dev-user' }
+$body = @{
+  title = 'Friday Board Games'
+  description = 'Bring drinks if you want'
+  location = 'Prospekt Mira 10'
+  startsAt = '2026-03-20T16:30:00.000Z'
+  timezone = 'Europe/Moscow'
+  capacityLimit = 8
+} | ConvertTo-Json
+
+$event = Invoke-RestMethod -Method Post `
+  -Uri 'http://localhost:3000/api/v1/events' `
+  -Headers $headers `
+  -ContentType 'application/json' `
+  -Body $body
+
+$invite1 = Invoke-RestMethod -Method Post `
+  -Uri ("http://localhost:3000/api/v1/events/{0}/invite-link" -f $event.id) `
+  -Headers $headers
+
+$invite2 = Invoke-RestMethod -Method Post `
+  -Uri ("http://localhost:3000/api/v1/events/{0}/invite-link" -f $event.id) `
+  -Headers $headers
+
+$invite1
+$invite2
+
+Invoke-RestMethod -Method Get -Uri $invite1.url
+```
+
+The second invite response should return the same `token` and `url` as the first response.
+
+To simulate inactive/expired links for manual checks, update `invite_links` rows in PostgreSQL and confirm `GET /api/v1/invite-links/:token` returns 404.
