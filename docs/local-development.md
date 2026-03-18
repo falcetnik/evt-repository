@@ -52,14 +52,66 @@ pnpm --filter @event-app/api db:studio
 
 ## Run backend tests
 ```powershell
+pnpm --filter @event-app/api test -- --runTestsByPath test/rsvp.dto.spec.ts
+pnpm --filter @event-app/api test:integration -- --runInBand --runTestsByPath test/rsvp.integration-spec.ts
 pnpm --filter @event-app/api test -- --runTestsByPath test/database-env.validation.spec.ts
-pnpm --filter @event-app/api test:integration -- --runInBand
 pnpm --filter @event-app/api test:e2e -- --runInBand
 ```
 
 ## Start backend app
 ```powershell
 pnpm --filter @event-app/api start:dev
+```
+
+## RSVP manual verification (PowerShell)
+1. Create an organizer event:
+
+```powershell
+$event = Invoke-RestMethod -Method Post -Uri 'http://localhost:3000/api/v1/events' -Headers @{ 'x-dev-user-id' = 'dev_user_1' } -ContentType 'application/json' -Body (@{
+  title = 'EVT-5 Manual Event'
+  startsAt = '2030-06-01T18:00:00.000Z'
+  timezone = 'UTC'
+} | ConvertTo-Json)
+```
+
+2. Create/reuse invite link:
+
+```powershell
+$invite = Invoke-RestMethod -Method Post -Uri "http://localhost:3000/api/v1/events/$($event.eventId)/invite-link" -Headers @{ 'x-dev-user-id' = 'dev_user_1' }
+```
+
+3. Check initial public summary:
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://localhost:3000/api/v1/invite-links/$($invite.token)"
+```
+
+4. Submit RSVP and then update it with the same email:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://localhost:3000/api/v1/invite-links/$($invite.token)/rsvp" -ContentType 'application/json' -Body (@{
+  guestName = 'Nikita'
+  guestEmail = 'nikita@example.com'
+  status = 'going'
+} | ConvertTo-Json)
+
+Invoke-RestMethod -Method Post -Uri "http://localhost:3000/api/v1/invite-links/$($invite.token)/rsvp" -ContentType 'application/json' -Body (@{
+  guestName = 'Nikita Updated'
+  guestEmail = 'NIKITA@example.com'
+  status = 'not_going'
+} | ConvertTo-Json)
+```
+
+5. Verify organizer attendee list and summary:
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://localhost:3000/api/v1/events/$($event.eventId)/attendees" -Headers @{ 'x-dev-user-id' = 'dev_user_1' }
+```
+
+6. Verify updated public invite summary counts:
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://localhost:3000/api/v1/invite-links/$($invite.token)"
 ```
 
 ## Start mobile app

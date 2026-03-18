@@ -105,6 +105,7 @@ model EventAttendee {
   user           User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@unique([eventId, userId])
+  @@unique([eventId, guestEmail])
   @@index([eventId])
   @@index([userId])
   @@map("event_attendees")
