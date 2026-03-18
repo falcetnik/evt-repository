@@ -13,8 +13,7 @@
     "test:integration": "dotenv -e .env.test -- jest --config ./test/jest-integration.json",
     "db:generate": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy",
-    "db:studio": "prisma studio",
-    "db:seed:dev-user": "ts-node-dev --transpile-only --exit-child src/scripts/seed-dev-user.ts"
+    "db:studio": "prisma studio"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.2",

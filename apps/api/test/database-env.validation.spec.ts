@@ -7,7 +7,6 @@ describe('validateEnv database settings', () => {
     API_HOST: '0.0.0.0',
     API_PORT: '3000',
     APP_DISPLAY_NAME: 'Event App',
-    PUBLIC_INVITE_BASE_URL: 'http://localhost:3000/api/v1/invite-links',
   };
 
   it('accepts a valid DATABASE_URL', () => {

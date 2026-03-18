@@ -24,13 +24,6 @@ cp apps/api/.env.test.example apps/api/.env.test
 cp apps/mobile/.env.example apps/mobile/.env
 ```
 
-`PUBLIC_INVITE_BASE_URL` must exist in both `apps/api/.env` and `apps/api/.env.test`.
-Example value:
-
-```text
-http://localhost:3000/api/v1/invite-links
-```
-
 ## Start local infrastructure
 ```powershell
 docker compose up -d
@@ -49,12 +42,6 @@ Apply committed migrations:
 pnpm --filter @event-app/api db:migrate:deploy
 ```
 
-Seed the development organizer user from EVT-3:
-
-```powershell
-pnpm --filter @event-app/api db:seed:dev-user
-```
-
 Open Prisma Studio:
 
 ```powershell
@@ -65,9 +52,9 @@ pnpm --filter @event-app/api db:studio
 
 ## Run backend tests
 ```powershell
-pnpm --filter @event-app/api test -- --runTestsByPath test/invite-link-url.spec.ts
-pnpm --filter @event-app/api test:integration -- --runInBand --runTestsByPath test/invite-links.integration-spec.ts
-pnpm --filter @event-app/api typecheck
+pnpm --filter @event-app/api test -- --runTestsByPath test/database-env.validation.spec.ts
+pnpm --filter @event-app/api test:integration -- --runInBand
+pnpm --filter @event-app/api test:e2e -- --runInBand
 ```
 
 ## Start backend app
@@ -75,55 +62,10 @@ pnpm --filter @event-app/api typecheck
 pnpm --filter @event-app/api start:dev
 ```
 
-## EVT-4 manual verification (PowerShell)
-
-Assume API is running on `http://localhost:3000` and you seeded the organizer user (`dev-user-1`).
-
-Create event:
-
+## Start mobile app
 ```powershell
-$headers = @{ 'x-dev-user-id' = 'dev-user-1' }
-$body = @{
-  title = 'Friday Board Games'
-  description = 'Bring drinks if you want'
-  location = 'Prospekt Mira 10'
-  startsAt = '2026-03-20T16:30:00.000Z'
-  timezone = 'Europe/Moscow'
-  capacityLimit = 8
-} | ConvertTo-Json
-
-$event = Invoke-RestMethod -Method Post -Uri 'http://localhost:3000/api/v1/events' -Headers $headers -ContentType 'application/json' -Body $body
-$event
+pnpm --filter @event-app/mobile start
 ```
-
-Create/fetch invite link:
-
-```powershell
-$invite = Invoke-RestMethod -Method Post -Uri ("http://localhost:3000/api/v1/events/{0}/invite-link" -f $event.id) -Headers $headers
-$invite
-```
-
-Call it a second time and confirm the same token and URL:
-
-```powershell
-$invite2 = Invoke-RestMethod -Method Post -Uri ("http://localhost:3000/api/v1/events/{0}/invite-link" -f $event.id) -Headers $headers
-$invite2
-```
-
-Resolve public invite (no auth required):
-
-```powershell
-Invoke-RestMethod -Method Get -Uri $invite.url
-```
-
-Test inactive/expired manually (example SQL via Prisma Studio/query tool):
-
-```sql
-UPDATE "invite_links" SET "is_active" = false WHERE "token" = '<token>';
-UPDATE "invite_links" SET "is_active" = true, "expires_at" = NOW() - INTERVAL '1 minute' WHERE "token" = '<token>';
-```
-
-Both states should return `404` from `GET /api/v1/invite-links/:token`.
 
 ## Useful URLs
 - API health: http://localhost:3000/api/v1/health

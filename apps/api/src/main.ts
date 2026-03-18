@@ -13,11 +13,7 @@ async function bootstrap() {
     APP_DISPLAY_NAME: process.env.APP_DISPLAY_NAME ?? 'Event App',
     DATABASE_URL:
       process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/event_app?schema=public',
-    PUBLIC_INVITE_BASE_URL:
-      process.env.PUBLIC_INVITE_BASE_URL ?? 'http://localhost:3000/api/v1/invite-links',
   });
-
-  process.env.PUBLIC_INVITE_BASE_URL = env.PUBLIC_INVITE_BASE_URL;
 
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api');
