@@ -138,3 +138,61 @@ Invoke-RestMethod -Method Get -Uri $invite1.url
 The second invite response should return the same `token` and `url` as the first response.
 
 To simulate inactive/expired links for manual checks, update `invite_links` rows in PostgreSQL and confirm `GET /api/v1/invite-links/:token` returns 404.
+
+## EVT-6 manual waitlist verification (PowerShell)
+Use the seeded `DEV_USER_ID` from `pnpm --filter @event-app/api db:seed:dev-user` output.
+
+```powershell
+$headers = @{ 'x-dev-user-id' = 'local-organizer-dev-user' }
+
+$eventBody = @{
+  title = 'EVT-6 Capacity Test'
+  startsAt = '2026-03-20T16:30:00.000Z'
+  timezone = 'UTC'
+  capacityLimit = 2
+} | ConvertTo-Json
+
+$event = Invoke-RestMethod -Method Post `
+  -Uri 'http://localhost:3000/api/v1/events' `
+  -Headers $headers `
+  -ContentType 'application/json' `
+  -Body $eventBody
+
+$invite = Invoke-RestMethod -Method Post `
+  -Uri ("http://localhost:3000/api/v1/events/{0}/invite-link" -f $event.id) `
+  -Headers $headers
+
+$inviteUrl = "http://localhost:3000/api/v1/invite-links/{0}" -f $invite.token
+$rsvpUrl = "http://localhost:3000/api/v1/invite-links/{0}/rsvp" -f $invite.token
+
+$guestA = @{ guestName = 'Guest A'; guestEmail = 'a@example.com'; status = 'going' } | ConvertTo-Json
+$guestB = @{ guestName = 'Guest B'; guestEmail = 'b@example.com'; status = 'going' } | ConvertTo-Json
+$guestC = @{ guestName = 'Guest C'; guestEmail = 'c@example.com'; status = 'going' } | ConvertTo-Json
+$guestD = @{ guestName = 'Guest D'; guestEmail = 'd@example.com'; status = 'going' } | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri $rsvpUrl -ContentType 'application/json' -Body $guestA
+Invoke-RestMethod -Method Post -Uri $rsvpUrl -ContentType 'application/json' -Body $guestB
+Invoke-RestMethod -Method Post -Uri $rsvpUrl -ContentType 'application/json' -Body $guestC
+Invoke-RestMethod -Method Post -Uri $rsvpUrl -ContentType 'application/json' -Body $guestD
+
+# Verify waitlist positions (C should be 1, D should be 2)
+Invoke-RestMethod -Method Get -Uri $inviteUrl
+Invoke-RestMethod -Method Get -Uri ("http://localhost:3000/api/v1/events/{0}/attendees" -f $event.id) -Headers $headers
+
+# Remove C from waitlist and verify D compacts to position 1
+$guestCMaybe = @{ guestName = 'Guest C'; guestEmail = 'c@example.com'; status = 'maybe' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri $rsvpUrl -ContentType 'application/json' -Body $guestCMaybe
+Invoke-RestMethod -Method Get -Uri ("http://localhost:3000/api/v1/events/{0}/attendees" -f $event.id) -Headers $headers
+
+# Free confirmed seat (A -> not_going) and verify D auto-promotes to confirmed
+$guestANotGoing = @{ guestName = 'Guest A'; guestEmail = 'a@example.com'; status = 'not_going' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri $rsvpUrl -ContentType 'application/json' -Body $guestANotGoing
+
+Invoke-RestMethod -Method Get -Uri $inviteUrl
+Invoke-RestMethod -Method Get -Uri ("http://localhost:3000/api/v1/events/{0}/attendees" -f $event.id) -Headers $headers
+```
+
+URLs used:
+- Public invite resolution: `GET http://localhost:3000/api/v1/invite-links/:token`
+- Public RSVP submit: `POST http://localhost:3000/api/v1/invite-links/:token/rsvp`
+- Organizer attendee list: `GET http://localhost:3000/api/v1/events/:eventId/attendees`

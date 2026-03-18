@@ -33,7 +33,7 @@ export class InviteLinksController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Resolve a public invite token to public event data' })
   @ApiParam({ name: 'token', required: true })
-  @ApiResponse({ status: 200, description: 'Public invite resolved' })
+  @ApiResponse({ status: 200, description: 'Public invite resolved with RSVP summary including confirmed/waitlist/capacity fields' })
   @ApiResponse({ status: 404, description: 'Invite link not found' })
   resolveInviteLink(@Param('token') token: string) {
     return this.inviteLinksService.resolvePublicInviteLink(token);
@@ -43,8 +43,8 @@ export class InviteLinksController {
   @ApiOperation({ summary: 'Submit public RSVP for invite link token' })
   @ApiParam({ name: 'token', required: true })
   @ApiBody({ type: SubmitRsvpDto })
-  @ApiResponse({ status: 201, description: 'RSVP created' })
-  @ApiResponse({ status: 200, description: 'RSVP updated' })
+  @ApiResponse({ status: 201, description: 'RSVP created with attendanceState and waitlistPosition' })
+  @ApiResponse({ status: 200, description: 'RSVP updated with attendanceState and waitlistPosition' })
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 404, description: 'Invite link not found' })
   async submitRsvp(

@@ -141,6 +141,11 @@ describe('Invite links API integration', () => {
         maybe: 0,
         notGoing: 0,
         total: 0,
+        confirmedGoing: 0,
+        waitlistedGoing: 0,
+        capacityLimit: 8,
+        remainingSpots: 8,
+        isFull: false,
       },
       event: {
         title: 'Friday Board Games',
@@ -176,6 +181,8 @@ describe('Invite links API integration', () => {
       guestName: 'Nikita',
       guestEmail: 'nikita@example.com',
       status: 'going',
+      attendanceState: 'confirmed',
+      waitlistPosition: null,
     });
     expect(response.body.attendeeId).toEqual(expect.any(String));
     expect(response.body.createdAt).toEqual(expect.any(String));
@@ -225,6 +232,8 @@ describe('Invite links API integration', () => {
     expect(updated.body.guestName).toBe('Nikita Updated');
     expect(updated.body.guestEmail).toBe('nikita@example.com');
     expect(updated.body.status).toBe('maybe');
+    expect(updated.body.attendanceState).toBe('not_attending');
+    expect(updated.body.waitlistPosition).toBeNull();
 
     const attendeesResult = await client?.query(
       'SELECT COUNT(*)::int AS count FROM "event_attendees" WHERE "event_id" = $1 AND "guest_email" = $2',
@@ -307,12 +316,22 @@ describe('Invite links API integration', () => {
       maybe: 1,
       notGoing: 1,
       total: 3,
+      confirmedGoing: 1,
+      waitlistedGoing: 0,
+      capacityLimit: 8,
+      remainingSpots: 7,
+      isFull: false,
     });
     expect(response.body.eventId).toBe(eventId);
     expect(response.body.attendees.map((attendee: { guestEmail: string }) => attendee.guestEmail)).toEqual([
       'nikita@example.com',
-      'pavel@example.com',
       'anna@example.com',
+      'pavel@example.com',
+    ]);
+    expect(response.body.attendees.map((attendee: { attendanceState: string }) => attendee.attendanceState)).toEqual([
+      'confirmed',
+      'not_attending',
+      'not_attending',
     ]);
   });
 
@@ -350,6 +369,11 @@ describe('Invite links API integration', () => {
       maybe: 0,
       notGoing: 1,
       total: 2,
+      confirmedGoing: 1,
+      waitlistedGoing: 0,
+      capacityLimit: 8,
+      remainingSpots: 7,
+      isFull: false,
     });
   });
 
