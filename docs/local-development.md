@@ -241,3 +241,60 @@ Rerun EVT-7 tests:
 pnpm --filter @event-app/api test -- --runTestsByPath test/event-reminders.schedule.spec.ts
 pnpm --filter @event-app/api test:integration -- --runInBand --runTestsByPath test/event-reminders.integration-spec.ts
 ```
+
+## EVT-8 organizer events list verification (PowerShell)
+Use the seeded `DEV_USER_ID` from `pnpm --filter @event-app/api db:seed:dev-user` output.
+
+```powershell
+$headers = @{ 'x-dev-user-id' = 'local-organizer-dev-user'; 'Content-Type' = 'application/json' }
+
+$eventBody1 = @{
+  title = 'EVT-8 Upcoming Event'
+  startsAt = '2099-03-20T16:30:00.000Z'
+  timezone = 'UTC'
+  capacityLimit = 4
+} | ConvertTo-Json
+
+$eventBody2 = @{
+  title = 'EVT-8 Past Event'
+  startsAt = '2020-03-20T16:30:00.000Z'
+  timezone = 'UTC'
+} | ConvertTo-Json
+
+$upcomingEvent = Invoke-RestMethod -Method Post `
+  -Uri 'http://localhost:3000/api/v1/events' `
+  -Headers $headers `
+  -Body $eventBody1
+
+$pastEvent = Invoke-RestMethod -Method Post `
+  -Uri 'http://localhost:3000/api/v1/events' `
+  -Headers $headers `
+  -Body $eventBody2
+
+# Create an invite link and reminders so list cards include hasActiveInviteLink and activeReminderCount.
+$invite = Invoke-RestMethod -Method Post `
+  -Uri ("http://localhost:3000/api/v1/events/{0}/invite-link" -f $upcomingEvent.id) `
+  -Headers @{ 'x-dev-user-id' = 'local-organizer-dev-user' }
+
+$reminderBody = @{ offsetsMinutes = @(1440, 60) } | ConvertTo-Json
+Invoke-RestMethod -Method Put `
+  -Uri ("http://localhost:3000/api/v1/events/{0}/reminders" -f $upcomingEvent.id) `
+  -Headers $headers `
+  -Body $reminderBody
+```
+
+List endpoint calls:
+
+```powershell
+Invoke-RestMethod -Method Get `
+  -Uri 'http://localhost:3000/api/v1/events' `
+  -Headers @{ 'x-dev-user-id' = 'local-organizer-dev-user' }
+
+Invoke-RestMethod -Method Get `
+  -Uri 'http://localhost:3000/api/v1/events?scope=past' `
+  -Headers @{ 'x-dev-user-id' = 'local-organizer-dev-user' }
+
+Invoke-RestMethod -Method Get `
+  -Uri 'http://localhost:3000/api/v1/events?scope=all' `
+  -Headers @{ 'x-dev-user-id' = 'local-organizer-dev-user' }
+```

@@ -5,6 +5,7 @@ import type { AuthUser } from '../auth/auth-user.type';
 import { PrismaService } from '../database/prisma.service';
 import { buildReminderPlan } from './reminders/reminder-schedule';
 import { CreateEventDto } from './dto/create-event.dto';
+import { EventListScope } from './dto/list-events.query.dto';
 
 @Injectable()
 export class EventsService {
@@ -24,6 +25,70 @@ export class EventsService {
     });
 
     return this.toResponse(event);
+  }
+
+
+  async listEvents(currentUser: AuthUser, scope: EventListScope) {
+    const now = new Date();
+
+    const events = await this.prisma.client.event.findMany({
+      where: {
+        organizerUserId: currentUser.id,
+        ...this.buildScopeWhere(scope, now),
+      },
+      orderBy: this.buildScopeOrderBy(scope),
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        locationName: true,
+        startsAt: true,
+        timezone: true,
+        capacityLimit: true,
+        createdAt: true,
+        updatedAt: true,
+        attendees: {
+          select: {
+            responseStatus: true,
+            waitlistPosition: true,
+          },
+        },
+        inviteLinks: {
+          select: {
+            isActive: true,
+            expiresAt: true,
+          },
+        },
+        reminders: {
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+    const responseEvents = events.map((event) => ({
+      id: event.id,
+      title: event.title,
+      description: event.description,
+      location: event.locationName,
+      startsAt: event.startsAt.toISOString(),
+      timezone: event.timezone,
+      capacityLimit: event.capacityLimit,
+      summary: buildRsvpSummary(event.attendees, event.capacityLimit),
+      hasActiveInviteLink: event.inviteLinks.some(
+        (inviteLink) => inviteLink.isActive && (inviteLink.expiresAt === null || inviteLink.expiresAt > now),
+      ),
+      activeReminderCount: event.reminders.length,
+      createdAt: event.createdAt.toISOString(),
+      updatedAt: event.updatedAt.toISOString(),
+    }));
+
+    return {
+      scope,
+      total: responseEvents.length,
+      events: responseEvents,
+    };
   }
 
   async getEventById(currentUser: AuthUser, eventId: string) {
@@ -128,6 +193,27 @@ export class EventsService {
       timezone: event.timezone,
       reminders,
     });
+  }
+
+
+  private buildScopeWhere(scope: EventListScope, now: Date) {
+    if (scope === 'past') {
+      return { startsAt: { lt: now } };
+    }
+
+    if (scope === 'all') {
+      return {};
+    }
+
+    return { startsAt: { gte: now } };
+  }
+
+  private buildScopeOrderBy(scope: EventListScope) {
+    if (scope === 'past') {
+      return [{ startsAt: 'desc' as const }, { id: 'desc' as const }];
+    }
+
+    return [{ startsAt: 'asc' as const }, { id: 'asc' as const }];
   }
 
   private async listEventReminders(eventId: string) {
