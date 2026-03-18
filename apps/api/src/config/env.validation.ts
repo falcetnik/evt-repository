@@ -5,6 +5,7 @@ export type AppEnv = {
   API_PORT: number;
   APP_DISPLAY_NAME: string;
   DATABASE_URL: string;
+  PUBLIC_INVITE_BASE_URL: string;
 };
 
 const requiredKeys: Array<keyof Omit<AppEnv, 'API_PORT'>> = [
@@ -13,6 +14,7 @@ const requiredKeys: Array<keyof Omit<AppEnv, 'API_PORT'>> = [
   'API_HOST',
   'APP_DISPLAY_NAME',
   'DATABASE_URL',
+  'PUBLIC_INVITE_BASE_URL',
 ];
 
 export function validateEnv(config: Record<string, unknown>): AppEnv {
@@ -41,6 +43,18 @@ export function validateEnv(config: Record<string, unknown>): AppEnv {
     throw new Error('DATABASE_URL must use the PostgreSQL protocol');
   }
 
+  const inviteBaseUrl = String(config.PUBLIC_INVITE_BASE_URL);
+  let parsedInviteUrl: URL;
+  try {
+    parsedInviteUrl = new URL(inviteBaseUrl);
+  } catch {
+    throw new Error('PUBLIC_INVITE_BASE_URL must be a valid absolute URL');
+  }
+
+  if (!['http:', 'https:'].includes(parsedInviteUrl.protocol)) {
+    throw new Error('PUBLIC_INVITE_BASE_URL must use http or https');
+  }
+
   return {
     NODE_ENV: String(config.NODE_ENV),
     APP_ENV: String(config.APP_ENV),
@@ -48,5 +62,6 @@ export function validateEnv(config: Record<string, unknown>): AppEnv {
     API_PORT: port,
     APP_DISPLAY_NAME: String(config.APP_DISPLAY_NAME),
     DATABASE_URL: databaseUrl,
+    PUBLIC_INVITE_BASE_URL: inviteBaseUrl.endsWith('/') ? inviteBaseUrl.slice(0, -1) : inviteBaseUrl,
   };
 }
