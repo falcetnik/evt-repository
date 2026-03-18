@@ -9,6 +9,8 @@ type AttendeePlacementInput = {
   createdAt: Date;
 };
 
+type AttendeeSummaryInput = Pick<AttendeePlacementInput, 'responseStatus' | 'waitlistPosition'>;
+
 export function deriveAttendanceState(
   responseStatus: AttendeeResponseStatus,
   waitlistPosition: number | null,
@@ -24,8 +26,8 @@ export function deriveAttendanceState(
   return 'confirmed';
 }
 
-export function buildRsvpSummary(
-  attendees: Array<{ responseStatus: AttendeeResponseStatus; waitlistPosition: number | null }>,
+export function buildRsvpSummary<T extends AttendeeSummaryInput>(
+  attendees: readonly T[],
   capacityLimit: number | null,
 ) {
   const summary = {
@@ -66,7 +68,7 @@ export function buildRsvpSummary(
   return summary;
 }
 
-export function sortAttendeesForOrganizer<T extends AttendeePlacementInput>(attendees: T[]): T[] {
+export function sortAttendeesForOrganizer<T extends AttendeePlacementInput>(attendees: readonly T[]): T[] {
   return [...attendees].sort((left, right) => {
     const leftState = deriveAttendanceState(left.responseStatus, left.waitlistPosition);
     const rightState = deriveAttendanceState(right.responseStatus, right.waitlistPosition);
