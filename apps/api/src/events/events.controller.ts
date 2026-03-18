@@ -28,4 +28,12 @@ export class EventsController {
   getEventById(@CurrentUser() currentUser: AuthUser, @Param('eventId') eventId: string) {
     return this.eventsService.getEventById(currentUser, eventId);
   }
+
+  @Get(':eventId/attendees')
+  @ApiOperation({ summary: 'Get organizer attendee list for event' })
+  @ApiResponse({ status: 200, description: 'Attendees loaded' })
+  @ApiResponse({ status: 404, description: 'Event not found' })
+  getAttendees(@CurrentUser() currentUser: AuthUser, @Param('eventId') eventId: string) {
+    return this.eventsService.getAttendees(currentUser, eventId);
+  }
 }
