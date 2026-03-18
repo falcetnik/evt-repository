@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { AttendeeResponseStatus } from '@prisma/client';
+import { buildRsvpSummary, deriveAttendanceState, sortAttendeesForOrganizer } from '../attendance/attendance-summary';
 import type { AuthUser } from '../auth/auth-user.type';
 import { PrismaService } from '../database/prisma.service';
 import { CreateEventDto } from './dto/create-event.dto';
@@ -45,7 +46,10 @@ export class EventsService {
         id: eventId,
         organizerUserId: currentUser.id,
       },
-      select: { id: true },
+      select: {
+        id: true,
+        capacityLimit: true,
+      },
     });
 
     if (!event) {
@@ -54,34 +58,30 @@ export class EventsService {
 
     const attendees = await this.prisma.client.eventAttendee.findMany({
       where: { eventId },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        guestName: true,
+        guestEmail: true,
+        responseStatus: true,
+        waitlistPosition: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
-    const summary = {
-      going: 0,
-      maybe: 0,
-      notGoing: 0,
-      total: attendees.length,
-    };
+    const sortedAttendees = sortAttendeesForOrganizer(attendees);
+    const summary = buildRsvpSummary(attendees, event.capacityLimit);
 
-    const attendeeResponses = attendees.map((attendee) => {
-      if (attendee.responseStatus === AttendeeResponseStatus.GOING) {
-        summary.going += 1;
-      } else if (attendee.responseStatus === AttendeeResponseStatus.MAYBE) {
-        summary.maybe += 1;
-      } else if (attendee.responseStatus === AttendeeResponseStatus.NOT_GOING) {
-        summary.notGoing += 1;
-      }
-
-      return {
-        attendeeId: attendee.id,
-        guestName: attendee.guestName,
-        guestEmail: attendee.guestEmail,
-        status: this.toApiStatus(attendee.responseStatus),
-        createdAt: attendee.createdAt.toISOString(),
-        updatedAt: attendee.updatedAt.toISOString(),
-      };
-    });
+    const attendeeResponses = sortedAttendees.map((attendee) => ({
+      attendeeId: attendee.id,
+      guestName: attendee.guestName,
+      guestEmail: attendee.guestEmail,
+      status: this.toApiStatus(attendee.responseStatus),
+      attendanceState: deriveAttendanceState(attendee.responseStatus, attendee.waitlistPosition),
+      waitlistPosition: attendee.waitlistPosition,
+      createdAt: attendee.createdAt.toISOString(),
+      updatedAt: attendee.updatedAt.toISOString(),
+    }));
 
     return {
       eventId,

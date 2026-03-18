@@ -31,7 +31,7 @@ export class EventsController {
 
   @Get(':eventId/attendees')
   @ApiOperation({ summary: 'Get organizer attendee list for event' })
-  @ApiResponse({ status: 200, description: 'Attendees loaded' })
+  @ApiResponse({ status: 200, description: 'Attendees loaded with attendanceState, waitlistPosition, and capacity-aware summary' })
   @ApiResponse({ status: 404, description: 'Event not found' })
   getAttendees(@CurrentUser() currentUser: AuthUser, @Param('eventId') eventId: string) {
     return this.eventsService.getAttendees(currentUser, eventId);

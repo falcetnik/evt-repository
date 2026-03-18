@@ -1,6 +1,7 @@
 import { AttendeeResponseStatus } from '@prisma/client';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
+import { buildRsvpSummary, deriveAttendanceState } from '../attendance/attendance-summary';
 import type { AuthUser } from '../auth/auth-user.type';
 import { PrismaService } from '../database/prisma.service';
 import { SubmitRsvpDto } from './dto/submit-rsvp.dto';
@@ -49,7 +50,7 @@ export class InviteLinksService {
 
   async resolvePublicInviteLink(token: string) {
     const link = await this.findUsableInviteLinkOrThrow(token);
-    const rsvpSummary = await this.getRsvpSummary(link.eventId);
+    const rsvpSummary = await this.getRsvpSummary(link.eventId, link.event.capacityLimit);
 
     const inviteUrl = this.getInviteBaseUrl();
 
@@ -74,43 +75,199 @@ export class InviteLinksService {
     const link = await this.findUsableInviteLinkOrThrow(token);
     const status = this.toDbStatus(dto.status);
 
-    const existingAttendee = await this.prisma.client.eventAttendee.findUnique({
-      where: {
-        eventId_guestEmail: {
-          eventId: link.eventId,
-          guestEmail: dto.guestEmail,
-        },
-      },
-    });
+    const result = await this.prisma.client.$transaction(async (tx) => {
+      const lockedEvent = await tx.$queryRaw<Array<{ id: string; capacity_limit: number | null }>>`
+        SELECT id, capacity_limit
+        FROM events
+        WHERE id = ${link.eventId}
+        FOR UPDATE
+      `;
 
-    if (!existingAttendee) {
-      const createdAttendee = await this.prisma.client.eventAttendee.create({
-        data: {
-          eventId: link.eventId,
-          guestName: dto.guestName,
-          guestEmail: dto.guestEmail,
-          responseStatus: status,
+      if (lockedEvent.length === 0) {
+        throw new NotFoundException('Event not found');
+      }
+
+      const attendeesBefore = await tx.eventAttendee.findMany({
+        where: { eventId: link.eventId },
+        select: {
+          id: true,
+          responseStatus: true,
+          waitlistPosition: true,
+          createdAt: true,
         },
       });
 
-      return {
-        statusCode: 201,
-        payload: this.toAttendeeResponse(createdAttendee),
-      };
-    }
+      const beforeById = new Map(attendeesBefore.map((attendee) => [attendee.id, attendee]));
 
-    const updatedAttendee = await this.prisma.client.eventAttendee.update({
-      where: { id: existingAttendee.id },
-      data: {
-        guestName: dto.guestName,
-        responseStatus: status,
-      },
+      const existingAttendee = await tx.eventAttendee.findUnique({
+        where: {
+          eventId_guestEmail: {
+            eventId: link.eventId,
+            guestEmail: dto.guestEmail,
+          },
+        },
+      });
+
+      const isCreate = !existingAttendee;
+
+      const currentAttendee = existingAttendee
+        ? await tx.eventAttendee.update({
+            where: { id: existingAttendee.id },
+            data: {
+              guestName: dto.guestName,
+              responseStatus: status,
+            },
+          })
+        : await tx.eventAttendee.create({
+            data: {
+              eventId: link.eventId,
+              guestName: dto.guestName,
+              guestEmail: dto.guestEmail,
+              responseStatus: status,
+            },
+          });
+
+      const attendeesAfter = await tx.eventAttendee.findMany({
+        where: { eventId: link.eventId },
+        select: {
+          id: true,
+          responseStatus: true,
+          waitlistPosition: true,
+          createdAt: true,
+        },
+      });
+
+      const capacityLimit = lockedEvent[0]?.capacity_limit ?? null;
+
+      const isGoing = (responseStatus: AttendeeResponseStatus) => responseStatus === AttendeeResponseStatus.GOING;
+
+      const priorPlacement = (attendeeId: string): 'confirmed' | 'waitlisted' | 'other' => {
+        const previous = beforeById.get(attendeeId);
+        if (!previous || !isGoing(previous.responseStatus)) {
+          return 'other';
+        }
+        if (previous.waitlistPosition !== null) {
+          return 'waitlisted';
+        }
+        return 'confirmed';
+      };
+
+      const incumbentConfirmed = attendeesAfter
+        .filter((attendee) => isGoing(attendee.responseStatus) && priorPlacement(attendee.id) === 'confirmed')
+        .sort((left, right) => {
+          if (left.createdAt.getTime() !== right.createdAt.getTime()) {
+            return left.createdAt.getTime() - right.createdAt.getTime();
+          }
+          return left.id.localeCompare(right.id);
+        });
+
+      const waitlistQueue = attendeesAfter
+        .filter((attendee) => isGoing(attendee.responseStatus) && priorPlacement(attendee.id) !== 'confirmed')
+        .sort((left, right) => {
+          const leftPlacement = priorPlacement(left.id);
+          const rightPlacement = priorPlacement(right.id);
+
+          if (leftPlacement !== rightPlacement) {
+            return leftPlacement === 'waitlisted' ? -1 : 1;
+          }
+
+          if (leftPlacement === 'waitlisted' && rightPlacement === 'waitlisted') {
+            if (left.waitlistPosition !== right.waitlistPosition) {
+              return (left.waitlistPosition ?? 0) - (right.waitlistPosition ?? 0);
+            }
+            return left.id.localeCompare(right.id);
+          }
+
+          if (left.createdAt.getTime() !== right.createdAt.getTime()) {
+            return left.createdAt.getTime() - right.createdAt.getTime();
+          }
+
+          return left.id.localeCompare(right.id);
+        });
+
+      const confirmedIds = new Set<string>();
+
+      if (capacityLimit === null) {
+        for (const attendee of attendeesAfter) {
+          if (isGoing(attendee.responseStatus)) {
+            confirmedIds.add(attendee.id);
+          }
+        }
+      } else {
+        for (const attendee of incumbentConfirmed) {
+          if (confirmedIds.size >= capacityLimit) {
+            break;
+          }
+          confirmedIds.add(attendee.id);
+        }
+
+        for (const attendee of waitlistQueue) {
+          if (confirmedIds.size >= capacityLimit) {
+            break;
+          }
+          confirmedIds.add(attendee.id);
+        }
+      }
+
+      const waitlistIds = attendeesAfter
+        .filter((attendee) => isGoing(attendee.responseStatus) && !confirmedIds.has(attendee.id))
+        .sort((left, right) => {
+          const leftPlacement = priorPlacement(left.id);
+          const rightPlacement = priorPlacement(right.id);
+
+          if (leftPlacement !== rightPlacement) {
+            return leftPlacement === 'waitlisted' ? -1 : 1;
+          }
+
+          if (leftPlacement === 'waitlisted' && rightPlacement === 'waitlisted') {
+            if (left.waitlistPosition !== right.waitlistPosition) {
+              return (left.waitlistPosition ?? 0) - (right.waitlistPosition ?? 0);
+            }
+            return left.id.localeCompare(right.id);
+          }
+
+          if (left.createdAt.getTime() !== right.createdAt.getTime()) {
+            return left.createdAt.getTime() - right.createdAt.getTime();
+          }
+
+          return left.id.localeCompare(right.id);
+        })
+        .map((attendee) => attendee.id);
+
+      const nextWaitlistPositionById = new Map<string, number | null>();
+      for (const attendee of attendeesAfter) {
+        if (attendee.responseStatus !== AttendeeResponseStatus.GOING) {
+          nextWaitlistPositionById.set(attendee.id, null);
+        } else if (confirmedIds.has(attendee.id)) {
+          nextWaitlistPositionById.set(attendee.id, null);
+        }
+      }
+
+      waitlistIds.forEach((attendeeId, index) => {
+        nextWaitlistPositionById.set(attendeeId, index + 1);
+      });
+
+      for (const attendee of attendeesAfter) {
+        const nextWaitlistPosition = nextWaitlistPositionById.get(attendee.id) ?? null;
+        if (attendee.waitlistPosition !== nextWaitlistPosition) {
+          await tx.eventAttendee.update({
+            where: { id: attendee.id },
+            data: { waitlistPosition: nextWaitlistPosition },
+          });
+        }
+      }
+
+      const finalAttendee = await tx.eventAttendee.findUniqueOrThrow({
+        where: { id: currentAttendee.id },
+      });
+
+      return {
+        statusCode: isCreate ? 201 : 200,
+        payload: this.toAttendeeResponse(finalAttendee),
+      };
     });
 
-    return {
-      statusCode: 200,
-      payload: this.toAttendeeResponse(updatedAttendee),
-    };
+    return result;
   }
 
   private toOrganizerResponse(link: {
@@ -206,6 +363,7 @@ export class InviteLinksService {
     guestName: string | null;
     guestEmail: string | null;
     responseStatus: AttendeeResponseStatus;
+    waitlistPosition: number | null;
     createdAt: Date;
     updatedAt: Date;
   }) {
@@ -215,37 +373,23 @@ export class InviteLinksService {
       guestName: attendee.guestName,
       guestEmail: attendee.guestEmail,
       status: this.toApiStatus(attendee.responseStatus),
+      attendanceState: deriveAttendanceState(attendee.responseStatus, attendee.waitlistPosition),
+      waitlistPosition: attendee.waitlistPosition,
       createdAt: attendee.createdAt.toISOString(),
       updatedAt: attendee.updatedAt.toISOString(),
     };
   }
 
-  private async getRsvpSummary(eventId: string) {
-    const grouped = await this.prisma.client.eventAttendee.groupBy({
-      by: ['responseStatus'],
+  private async getRsvpSummary(eventId: string, capacityLimit: number | null) {
+    const attendees = await this.prisma.client.eventAttendee.findMany({
       where: { eventId },
-      _count: { _all: true },
+      select: {
+        responseStatus: true,
+        waitlistPosition: true,
+      },
     });
 
-    const summary = {
-      going: 0,
-      maybe: 0,
-      notGoing: 0,
-      total: 0,
-    };
-
-    for (const row of grouped) {
-      if (row.responseStatus === AttendeeResponseStatus.GOING) {
-        summary.going = row._count._all;
-      } else if (row.responseStatus === AttendeeResponseStatus.MAYBE) {
-        summary.maybe = row._count._all;
-      } else if (row.responseStatus === AttendeeResponseStatus.NOT_GOING) {
-        summary.notGoing = row._count._all;
-      }
-    }
-
-    summary.total = summary.going + summary.maybe + summary.notGoing;
-    return summary;
+    return buildRsvpSummary(attendees, capacityLimit);
   }
 
   private generateToken(): string {
@@ -258,13 +402,6 @@ export class InviteLinksService {
       throw new Error('PUBLIC_INVITE_BASE_URL must be a non-empty string');
     }
 
-    let parsed: URL;
-    try {
-      parsed = new URL(rawBaseUrl);
-    } catch {
-      throw new Error('PUBLIC_INVITE_BASE_URL must be a valid absolute URL');
-    }
-
-    return parsed.toString().replace(/\/+$/, '');
+    return rawBaseUrl.trim().replace(/\/$/, '');
   }
 }
