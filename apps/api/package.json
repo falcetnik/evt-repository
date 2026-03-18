@@ -10,11 +10,12 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "jest --config ./jest.config.ts",
     "test": "jest --config ./jest.config.ts",
-    "test:integration": "dotenv -e .env.test -- jest --config ./test/jest-integration.json",
+    "test:integration": "dotenv -e .env.test -- jest --runInBand --config ./test/jest-integration.json",
     "db:generate": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
-    "db:seed:dev-user": "dotenv -e .env -- node ./scripts/seed-dev-user.mjs"
+    "db:seed:dev-user": "dotenv -e .env -- node ./scripts/seed-dev-user.mjs",
+    "db:migrate:test": "dotenv -e .env.test -- prisma migrate deploy"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.2",

@@ -13,6 +13,8 @@ describe('Events API integration', () => {
     client = new Client({ connectionString: process.env.DATABASE_URL });
     await client.connect();
 
+    await client.query(`SET search_path TO event_app_test`);
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
