@@ -35,23 +35,41 @@ describe('Events list API integration', () => {
     ]);
 
     await client?.query(
-      `INSERT INTO "events" ("id", "organizer_user_id", "title", "description", "starts_at", "timezone", "location_name", "capacity_limit")
-       VALUES
-         ('evt-up-1', 'organizer-1', 'Upcoming One', 'desc one', '2099-01-01T10:00:00.000Z', 'UTC', 'Loc 1', 2),
-         ('evt-up-2', 'organizer-1', 'Upcoming Two', NULL, '2099-01-01T10:00:00.000Z', 'UTC', NULL, NULL),
-         ('evt-up-3', 'organizer-1', 'Upcoming Three', 'desc three', '2099-01-02T10:00:00.000Z', 'UTC', 'Loc 3', 5),
-         ('evt-past-1', 'organizer-1', 'Past One', NULL, '2000-01-01T08:00:00.000Z', 'UTC', 'Past 1', 4),
-         ('evt-past-2', 'organizer-1', 'Past Two', NULL, '2000-01-01T08:00:00.000Z', 'UTC', 'Past 2', 4),
-         ('evt-other-up', 'organizer-2', 'Other Organizer Upcoming', NULL, '2099-01-01T10:00:00.000Z', 'UTC', NULL, NULL)`
+      `INSERT INTO "events" (
+          "id",
+          "organizer_user_id",
+          "title",
+          "description",
+          "starts_at",
+          "timezone",
+          "location_name",
+          "capacity_limit",
+          "updated_at"
+      )
+        VALUES
+         ('evt-up-1', 'organizer-1', 'Upcoming One', 'desc one', '2099-01-01T10:00:00.000Z', 'UTC', 'Loc 1', 2, NOW()),
+         ('evt-up-2', 'organizer-1', 'Upcoming Two', NULL, '2099-01-01T10:00:00.000Z', 'UTC', NULL, NULL, NOW()),
+         ('evt-up-3', 'organizer-1', 'Upcoming Three', 'desc three', '2099-01-02T10:00:00.000Z', 'UTC', 'Loc 3', 5, NOW()),
+         ('evt-past-1', 'organizer-1', 'Past One', NULL, '2000-01-01T08:00:00.000Z', 'UTC', 'Past 1', 4, NOW()),
+         ('evt-past-2', 'organizer-1', 'Past Two', NULL, '2000-01-01T08:00:00.000Z', 'UTC', 'Past 2', 4, NOW()),
+         ('evt-other-up', 'organizer-2', 'Other Organizer Upcoming', NULL, '2099-01-01T10:00:00.000Z', 'UTC', NULL, NULL, NOW())`
     );
 
     await client?.query(
-      `INSERT INTO "event_attendees" ("id", "event_id", "guest_name", "guest_email", "response_status", "waitlist_position")
-       VALUES
-         ('att-1', 'evt-up-1', 'Alice', 'alice@example.com', 'GOING', NULL),
-         ('att-2', 'evt-up-1', 'Bob', 'bob@example.com', 'GOING', 1),
-         ('att-3', 'evt-up-1', 'Cora', 'cora@example.com', 'MAYBE', NULL),
-         ('att-4', 'evt-up-1', 'Dan', 'dan@example.com', 'NOT_GOING', NULL)`
+      `INSERT INTO "event_attendees" (
+          "id",
+          "event_id",
+          "guest_name",
+          "guest_email",
+          "response_status",
+          "waitlist_position",
+          "updated_at"
+        )
+        VALUES
+         ('att-1', 'evt-up-1', 'Alice', 'alice@example.com', 'GOING', NULL, NOW()),
+         ('att-2', 'evt-up-1', 'Bob', 'bob@example.com', 'GOING', 1, NOW()),
+         ('att-3', 'evt-up-1', 'Cora', 'cora@example.com', 'MAYBE', NULL, NOW()),
+         ('att-4', 'evt-up-1', 'Dan', 'dan@example.com', 'NOT_GOING', NULL, NOW())`
     );
 
     await client?.query(
@@ -63,11 +81,17 @@ describe('Events list API integration', () => {
     );
 
     await client?.query(
-      `INSERT INTO "event_reminders" ("id", "event_id", "offset_minutes", "send_at")
+      `INSERT INTO "event_reminders" (
+          "id",
+          "event_id",
+          "offset_minutes",
+          "send_at",
+          "updated_at"
+        )
        VALUES
-         ('rem-1', 'evt-up-1', 60, '2098-12-31T23:00:00.000Z'),
-         ('rem-2', 'evt-up-1', 30, '2099-01-01T09:30:00.000Z'),
-         ('rem-3', 'evt-past-1', 60, '1999-12-31T07:00:00.000Z')`
+         ('rem-1', 'evt-up-1', 60, '2098-12-31T23:00:00.000Z', NOW()),
+         ('rem-2', 'evt-up-1', 30, '2099-01-01T09:30:00.000Z', NOW()),
+         ('rem-3', 'evt-past-1', 60, '1999-12-31T07:00:00.000Z', NOW())`
     );
   });
 
