@@ -1,8 +1,9 @@
-import { Controller, Get, HttpCode, HttpStatus, Param, Post, Res, UseGuards } from '@nestjs/common';
-import { ApiHeader, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Res, UseGuards } from '@nestjs/common';
+import { ApiBody, ApiHeader, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { AuthUser } from '../auth/auth-user.type';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { SubmitRsvpDto } from './dto/submit-rsvp.dto';
 import { InviteLinksService } from './invite-links.service';
 
 @ApiTags('invite-links')
@@ -36,5 +37,22 @@ export class InviteLinksController {
   @ApiResponse({ status: 404, description: 'Invite link not found' })
   resolveInviteLink(@Param('token') token: string) {
     return this.inviteLinksService.resolvePublicInviteLink(token);
+  }
+
+  @Post('invite-links/:token/rsvp')
+  @ApiOperation({ summary: 'Submit public RSVP for invite link token' })
+  @ApiParam({ name: 'token', required: true })
+  @ApiBody({ type: SubmitRsvpDto })
+  @ApiResponse({ status: 201, description: 'RSVP created' })
+  @ApiResponse({ status: 200, description: 'RSVP updated' })
+  @ApiResponse({ status: 400, description: 'Validation error' })
+  @ApiResponse({ status: 404, description: 'Invite link not found' })
+  async submitRsvp(
+    @Param('token') token: string,
+    @Body() dto: SubmitRsvpDto,
+    @Res() response: { status: (statusCode: number) => { json: (body: unknown) => unknown } },
+  ) {
+    const result = await this.inviteLinksService.submitPublicRsvp(token, dto);
+    return response.status(result.statusCode).json(result.payload);
   }
 }

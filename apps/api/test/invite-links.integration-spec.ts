@@ -136,6 +136,12 @@ describe('Invite links API integration', () => {
       token,
       url: `http://localhost:3000/api/v1/invite-links/${token}`,
       expiresAt: null,
+      rsvpSummary: {
+        going: 0,
+        maybe: 0,
+        notGoing: 0,
+        total: 0,
+      },
       event: {
         title: 'Friday Board Games',
         description: 'Bring drinks if you want',
@@ -145,6 +151,205 @@ describe('Invite links API integration', () => {
         capacityLimit: 8,
         allowPlusOnes: false,
       },
+    });
+  });
+
+  it('creates RSVP by public invite link and returns attendee payload', async () => {
+    const eventId = await createEventForOrganizer('organizer-1');
+    const createInviteResponse = await request(app!.getHttpServer())
+      .post(`/api/v1/events/${eventId}/invite-link`)
+      .set('x-dev-user-id', 'organizer-1')
+      .expect(201);
+
+    const token = createInviteResponse.body.token as string;
+    const response = await request(app!.getHttpServer())
+      .post(`/api/v1/invite-links/${token}/rsvp`)
+      .send({
+        guestName: '  Nikita  ',
+        guestEmail: ' NiKiTa@Example.COM ',
+        status: 'going',
+      })
+      .expect(201);
+
+    expect(response.body).toMatchObject({
+      eventId,
+      guestName: 'Nikita',
+      guestEmail: 'nikita@example.com',
+      status: 'going',
+    });
+    expect(response.body.attendeeId).toEqual(expect.any(String));
+    expect(response.body.createdAt).toEqual(expect.any(String));
+    expect(response.body.updatedAt).toEqual(expect.any(String));
+
+    const attendeeRows = await client?.query(
+      'SELECT "guest_name", "guest_email", "response_status" FROM "event_attendees" WHERE "event_id" = $1',
+      [eventId],
+    );
+    expect(attendeeRows?.rows).toEqual([
+      {
+        guest_name: 'Nikita',
+        guest_email: 'nikita@example.com',
+        response_status: 'GOING',
+      },
+    ]);
+  });
+
+  it('upserts RSVP for same event + normalized email without duplicates', async () => {
+    const eventId = await createEventForOrganizer('organizer-1');
+    const createInviteResponse = await request(app!.getHttpServer())
+      .post(`/api/v1/events/${eventId}/invite-link`)
+      .set('x-dev-user-id', 'organizer-1')
+      .expect(201);
+
+    const token = createInviteResponse.body.token as string;
+
+    const created = await request(app!.getHttpServer())
+      .post(`/api/v1/invite-links/${token}/rsvp`)
+      .send({
+        guestName: 'Nikita',
+        guestEmail: 'nikita@example.com',
+        status: 'going',
+      })
+      .expect(201);
+
+    const updated = await request(app!.getHttpServer())
+      .post(`/api/v1/invite-links/${token}/rsvp`)
+      .send({
+        guestName: 'Nikita Updated',
+        guestEmail: 'NIKITA@EXAMPLE.COM',
+        status: 'maybe',
+      })
+      .expect(200);
+
+    expect(updated.body.attendeeId).toBe(created.body.attendeeId);
+    expect(updated.body.guestName).toBe('Nikita Updated');
+    expect(updated.body.guestEmail).toBe('nikita@example.com');
+    expect(updated.body.status).toBe('maybe');
+
+    const attendeesResult = await client?.query(
+      'SELECT COUNT(*)::int AS count FROM "event_attendees" WHERE "event_id" = $1 AND "guest_email" = $2',
+      [eventId, 'nikita@example.com'],
+    );
+
+    expect(attendeesResult?.rows[0]?.count).toBe(1);
+  });
+
+  it('returns 404 for RSVP when invite token is missing, inactive, or expired', async () => {
+    await request(app!.getHttpServer())
+      .post('/api/v1/invite-links/missing-token/rsvp')
+      .send({
+        guestName: 'Nikita',
+        guestEmail: 'nikita@example.com',
+        status: 'going',
+      })
+      .expect(404);
+
+    const eventId = await createEventForOrganizer('organizer-1');
+    await client?.query(
+      'INSERT INTO "invite_links" ("id", "event_id", "token", "is_active", "expires_at", "created_at") VALUES ($1, $2, $3, false, NULL, NOW())',
+      ['invite-inactive-for-rsvp', eventId, 'inactive-rsvp-token'],
+    );
+    await client?.query(
+      `INSERT INTO "invite_links" ("id", "event_id", "token", "is_active", "expires_at", "created_at") VALUES ($1, $2, $3, true, NOW() - INTERVAL '1 minute', NOW())`,
+      ['invite-expired-for-rsvp', eventId, 'expired-rsvp-token'],
+    );
+
+    await request(app!.getHttpServer())
+      .post('/api/v1/invite-links/inactive-rsvp-token/rsvp')
+      .send({
+        guestName: 'Nikita',
+        guestEmail: 'nikita@example.com',
+        status: 'going',
+      })
+      .expect(404);
+
+    await request(app!.getHttpServer())
+      .post('/api/v1/invite-links/expired-rsvp-token/rsvp')
+      .send({
+        guestName: 'Nikita',
+        guestEmail: 'nikita@example.com',
+        status: 'going',
+      })
+      .expect(404);
+  });
+
+  it('returns organizer attendee list with summary and deterministic ordering for owner', async () => {
+    const eventId = await createEventForOrganizer('organizer-1');
+    const createInviteResponse = await request(app!.getHttpServer())
+      .post(`/api/v1/events/${eventId}/invite-link`)
+      .set('x-dev-user-id', 'organizer-1')
+      .expect(201);
+    const token = createInviteResponse.body.token as string;
+
+    await request(app!.getHttpServer()).post(`/api/v1/invite-links/${token}/rsvp`).send({
+      guestName: 'Nikita',
+      guestEmail: 'nikita@example.com',
+      status: 'going',
+    });
+    await request(app!.getHttpServer()).post(`/api/v1/invite-links/${token}/rsvp`).send({
+      guestName: 'Pavel',
+      guestEmail: 'pavel@example.com',
+      status: 'not_going',
+    });
+    await request(app!.getHttpServer()).post(`/api/v1/invite-links/${token}/rsvp`).send({
+      guestName: 'Anna',
+      guestEmail: 'anna@example.com',
+      status: 'maybe',
+    });
+
+    const response = await request(app!.getHttpServer())
+      .get(`/api/v1/events/${eventId}/attendees`)
+      .set('x-dev-user-id', 'organizer-1')
+      .expect(200);
+
+    expect(response.body.summary).toEqual({
+      going: 1,
+      maybe: 1,
+      notGoing: 1,
+      total: 3,
+    });
+    expect(response.body.eventId).toBe(eventId);
+    expect(response.body.attendees.map((attendee: { guestEmail: string }) => attendee.guestEmail)).toEqual([
+      'nikita@example.com',
+      'pavel@example.com',
+      'anna@example.com',
+    ]);
+  });
+
+  it('returns 404 for attendee list when event is not owned by organizer', async () => {
+    const eventId = await createEventForOrganizer('organizer-1');
+
+    await request(app!.getHttpServer())
+      .get(`/api/v1/events/${eventId}/attendees`)
+      .set('x-dev-user-id', 'organizer-2')
+      .expect(404);
+  });
+
+  it('public invite resolution includes updated RSVP summary counts', async () => {
+    const eventId = await createEventForOrganizer('organizer-1');
+    const createInviteResponse = await request(app!.getHttpServer())
+      .post(`/api/v1/events/${eventId}/invite-link`)
+      .set('x-dev-user-id', 'organizer-1')
+      .expect(201);
+    const token = createInviteResponse.body.token as string;
+
+    await request(app!.getHttpServer()).post(`/api/v1/invite-links/${token}/rsvp`).send({
+      guestName: 'Nikita',
+      guestEmail: 'nikita@example.com',
+      status: 'going',
+    });
+    await request(app!.getHttpServer()).post(`/api/v1/invite-links/${token}/rsvp`).send({
+      guestName: 'Anna',
+      guestEmail: 'anna@example.com',
+      status: 'not_going',
+    });
+
+    const resolveResponse = await request(app!.getHttpServer()).get(`/api/v1/invite-links/${token}`).expect(200);
+    expect(resolveResponse.body.rsvpSummary).toEqual({
+      going: 1,
+      maybe: 0,
+      notGoing: 1,
+      total: 2,
     });
   });
 
