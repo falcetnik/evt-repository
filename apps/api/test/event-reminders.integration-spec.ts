@@ -141,7 +141,8 @@ describe('Event reminders API integration', () => {
   });
 
   it('rejects reminders that resolve in the past with 400', async () => {
-    const eventId = await createEvent('organizer-1', '2026-03-20T18:05:00.000Z');
+    const startsAt = new Date(Date.now() + 4 * 60 * 1000).toISOString();
+    const eventId = await createEvent('organizer-1', startsAt);
 
     await request(app!.getHttpServer())
       .put(`/api/v1/events/${eventId}/reminders`)
