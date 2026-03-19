@@ -5,13 +5,16 @@ import {
   FlatList,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { loadMobileConfig } from './src/api/config';
+import { fetchOrganizerEventDetailsBundle } from './src/api/event-details';
 import { ApiClientError } from './src/api/http';
 import { type EventListScope, fetchOrganizerEvents } from './src/api/events';
+import { mapEventDetailsToViewModel } from './src/features/event-details/event-details-model';
 import { mapEventToCardModel } from './src/features/events-list/event-card-model';
 
 type LoadStatus = 'idle' | 'loading' | 'error' | 'success';
@@ -24,6 +27,10 @@ export default function App() {
   const [status, setStatus] = useState<LoadStatus>('idle');
   const [events, setEvents] = useState<ReturnType<typeof mapEventToCardModel>[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [detailsStatus, setDetailsStatus] = useState<LoadStatus>('idle');
+  const [detailsErrorMessage, setDetailsErrorMessage] = useState<string | null>(null);
+  const [eventDetails, setEventDetails] = useState<ReturnType<typeof mapEventDetailsToViewModel> | null>(null);
 
   const loadEvents = useCallback(async () => {
     if (!configResult.ok) {
@@ -53,11 +60,45 @@ export default function App() {
     }
   }, [configResult, scope]);
 
+  const loadEventDetails = useCallback(async () => {
+    if (!configResult.ok || !selectedEventId) {
+      return;
+    }
+
+    setDetailsStatus('loading');
+    setDetailsErrorMessage(null);
+
+    try {
+      const bundle = await fetchOrganizerEventDetailsBundle({
+        baseUrl: configResult.value.apiBaseUrl,
+        eventId: selectedEventId,
+        devUserId: configResult.value.devUserId,
+        includeDevUserHeader: configResult.value.isDevelopment,
+      });
+
+      setEventDetails(mapEventDetailsToViewModel(bundle));
+      setDetailsStatus('success');
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        setDetailsErrorMessage(error.message);
+      } else {
+        setDetailsErrorMessage('Unexpected failure while loading event details');
+      }
+      setDetailsStatus('error');
+    }
+  }, [configResult, selectedEventId]);
+
   useEffect(() => {
     if (configResult.ok) {
       void loadEvents();
     }
   }, [configResult, loadEvents]);
+
+  useEffect(() => {
+    if (selectedEventId) {
+      void loadEventDetails();
+    }
+  }, [selectedEventId, loadEventDetails]);
 
   if (!configResult.ok) {
     return (
@@ -69,6 +110,99 @@ export default function App() {
           <Text style={styles.errorText}>{configResult.error}</Text>
           <Text style={styles.errorText}>Set values in apps/mobile/.env and restart Expo.</Text>
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (selectedEventId) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar style="auto" />
+        <Pressable
+          onPress={() => {
+            setSelectedEventId(null);
+          }}
+          style={styles.backButton}
+        >
+          <Text style={styles.backButtonText}>Back to events</Text>
+        </Pressable>
+
+        <Pressable onPress={() => void loadEventDetails()} style={styles.refreshButton}>
+          <Text style={styles.refreshText}>Refresh details</Text>
+        </Pressable>
+
+        {detailsStatus === 'loading' ? (
+          <View style={styles.centerState}>
+            <ActivityIndicator size="large" />
+            <Text style={styles.stateText}>Loading event details...</Text>
+          </View>
+        ) : null}
+
+        {detailsStatus === 'error' ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorTitle}>Could not load event details</Text>
+            <Text style={styles.errorText}>{detailsErrorMessage ?? 'Backend may be unavailable.'}</Text>
+            <Pressable onPress={() => void loadEventDetails()} style={styles.retryButton}>
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {detailsStatus === 'success' && eventDetails ? (
+          <ScrollView contentContainerStyle={styles.detailsContent}>
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>{eventDetails.event.title}</Text>
+              <Text style={styles.cardText}>{eventDetails.event.startsAtLabel}</Text>
+              <Text style={styles.cardText}>{eventDetails.event.timezoneLabel}</Text>
+              <Text style={styles.cardText}>{eventDetails.event.locationLabel}</Text>
+              <Text style={styles.cardText}>{eventDetails.event.descriptionLabel}</Text>
+              <Text style={styles.cardText}>{eventDetails.event.capacityLabel}</Text>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>RSVP summary</Text>
+              <Text style={styles.cardText}>{eventDetails.summary.totalLabel}</Text>
+              <Text style={styles.cardText}>{eventDetails.summary.goingLabel}</Text>
+              <Text style={styles.cardText}>{eventDetails.summary.maybeLabel}</Text>
+              <Text style={styles.cardText}>{eventDetails.summary.notGoingLabel}</Text>
+              <Text style={styles.cardText}>{eventDetails.summary.confirmedGoingLabel}</Text>
+              <Text style={styles.cardText}>{eventDetails.summary.waitlistedGoingLabel}</Text>
+              <Text style={styles.cardText}>{eventDetails.summary.remainingSpotsLabel}</Text>
+              <Text style={styles.cardText}>{eventDetails.summary.isFullLabel}</Text>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Attendees</Text>
+              {eventDetails.attendees.length === 0 ? (
+                <Text style={styles.cardText}>{eventDetails.attendeesEmptyMessage}</Text>
+              ) : (
+                eventDetails.attendees.map((attendee) => (
+                  <View key={attendee.key} style={styles.subCard}>
+                    <Text style={styles.cardText}>{attendee.guestName}</Text>
+                    <Text style={styles.cardText}>{attendee.guestEmail}</Text>
+                    <Text style={styles.cardText}>{attendee.statusLabel}</Text>
+                    <Text style={styles.cardText}>{attendee.attendanceStateLabel}</Text>
+                    {attendee.waitlistLabel ? <Text style={styles.cardText}>{attendee.waitlistLabel}</Text> : null}
+                  </View>
+                ))
+              )}
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Reminders</Text>
+              {eventDetails.reminders.length === 0 ? (
+                <Text style={styles.cardText}>{eventDetails.remindersEmptyMessage}</Text>
+              ) : (
+                eventDetails.reminders.map((reminder) => (
+                  <View key={reminder.key} style={styles.subCard}>
+                    <Text style={styles.cardText}>{reminder.offsetLabel}</Text>
+                    <Text style={styles.cardText}>{reminder.sendAtLabel}</Text>
+                  </View>
+                ))
+              )}
+            </View>
+          </ScrollView>
+        ) : null}
       </SafeAreaView>
     );
   }
@@ -128,7 +262,15 @@ export default function App() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
-            <View style={styles.card}>
+            <Pressable
+              onPress={() => {
+                setSelectedEventId(item.id);
+                setDetailsStatus('idle');
+                setDetailsErrorMessage(null);
+                setEventDetails(null);
+              }}
+              style={styles.card}
+            >
               <Text style={styles.cardTitle}>{item.title}</Text>
               <Text style={styles.cardText}>{item.startsAtLabel}</Text>
               <Text style={styles.cardText}>{item.timezoneLabel}</Text>
@@ -137,7 +279,7 @@ export default function App() {
               <Text style={styles.cardText}>{item.rsvpSummaryLabel}</Text>
               <Text style={styles.cardText}>{item.inviteLinkLabel}</Text>
               <Text style={styles.cardText}>{item.reminderLabel}</Text>
-            </View>
+            </Pressable>
           )}
         />
       ) : null}
@@ -188,6 +330,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
+  backButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#1d4ed8',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  backButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
   refreshText: {
     color: '#fff',
     fontWeight: '600',
@@ -232,6 +385,10 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingBottom: 40,
   },
+  detailsContent: {
+    gap: 10,
+    paddingBottom: 40,
+  },
   card: {
     backgroundColor: '#ffffff',
     borderRadius: 12,
@@ -240,8 +397,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
+  subCard: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    padding: 8,
+    gap: 2,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
   cardTitle: {
     fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  sectionTitle: {
+    fontSize: 15,
     fontWeight: '700',
     color: '#111827',
   },
