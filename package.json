@@ -5,7 +5,14 @@
   "scripts": {
     "dev:api": "pnpm --filter @event-app/api start:dev",
     "dev:mobile": "pnpm --filter @event-app/mobile start",
+
     "test": "pnpm --filter @event-app/api test:e2e",
+    "test:api:unit": "pnpm --filter @event-app/api test:unit",
+    "test:api:integration": "pnpm --filter @event-app/api test:integration",
+    "test:api:e2e": "pnpm --filter @event-app/api test:e2e",
+    "test:mobile": "pnpm --filter @event-app/mobile test",
+    "test:all": "pnpm run test:api:unit && pnpm run test:api:integration && pnpm run test:api:e2e && pnpm run test:mobile",
+
     "typecheck": "pnpm -r typecheck",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"
