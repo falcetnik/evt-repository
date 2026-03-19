@@ -338,3 +338,51 @@ pnpm --filter @event-app/mobile start
 6. Verify scope switching updates list for **Upcoming**, **Past**, and **All**.
 7. Stop backend temporarily and tap **Retry** in app; verify retryable error state appears.
 8. Start backend again and verify **Retry** loads the list successfully.
+
+## EVT-11 mobile create-event flow verification (PowerShell)
+1. Copy env files:
+
+```powershell
+Copy-Item apps/api/.env.example apps/api/.env -Force
+Copy-Item apps/mobile/.env.example apps/mobile/.env -Force
+```
+
+Use these values in `apps/mobile/.env` for Android Emulator:
+
+```env
+EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:3000/api
+EXPO_PUBLIC_DEV_USER_ID=local-organizer-dev-user
+```
+
+2. Start infrastructure and backend:
+
+```powershell
+docker compose up -d
+pnpm --filter @event-app/api db:generate
+pnpm --filter @event-app/api db:migrate:deploy
+pnpm --filter @event-app/api db:seed:dev-user
+pnpm --filter @event-app/api start:dev
+```
+
+3. In a second terminal, run mobile checks and start Expo:
+
+```powershell
+pnpm --filter @event-app/mobile test
+pnpm --filter @event-app/mobile typecheck
+pnpm --filter @event-app/mobile start
+```
+
+4. In Android Emulator, open the app and verify:
+- Organizer list loads.
+- Tap **Create event**.
+- Submit empty fields and verify a validation error is shown.
+- Submit valid values, for example:
+  - Title: `Friday Board Games`
+  - Description: `Bring drinks if you want`
+  - Location: `Prospekt Mira 10`
+  - Starts at: `2099-03-25T19:30:00.000Z`
+  - Timezone: `Europe/Moscow`
+  - Capacity limit: `8`
+- Verify app navigates to event details for the created event.
+- Tap **Back to events** and verify the new event appears after refresh.
+- Stop backend and submit again from create screen; verify a submit error appears and app does not crash.
