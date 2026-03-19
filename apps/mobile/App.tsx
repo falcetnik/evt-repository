@@ -6,6 +6,7 @@ import {
   Pressable,
   SafeAreaView,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -15,12 +16,14 @@ import { createOrganizerEvent } from './src/api/create-event';
 import { loadMobileConfig } from './src/api/config';
 import { fetchOrganizerEventDetailsBundle } from './src/api/event-details';
 import { ApiClientError } from './src/api/http';
+import { createOrReuseInviteLink } from './src/api/invite-link';
 import { type EventListScope, fetchOrganizerEvents } from './src/api/events';
 import {
   buildCreateEventPayloadFromForm,
   type CreateEventFormInput,
 } from './src/features/create-event/create-event-form-model';
 import { mapEventDetailsToViewModel } from './src/features/event-details/event-details-model';
+import { mapInviteLinkToViewModel } from './src/features/event-details/invite-link-model';
 import { mapEventToCardModel } from './src/features/events-list/event-card-model';
 
 type LoadStatus = 'idle' | 'loading' | 'error' | 'success';
@@ -49,6 +52,9 @@ export default function App() {
   const [createForm, setCreateForm] = useState<CreateEventFormInput>(initialCreateForm);
   const [createStatus, setCreateStatus] = useState<'idle' | 'submitting' | 'error'>('idle');
   const [createErrorMessage, setCreateErrorMessage] = useState<string | null>(null);
+  const [inviteStatus, setInviteStatus] = useState<LoadStatus>('idle');
+  const [inviteLink, setInviteLink] = useState<Awaited<ReturnType<typeof createOrReuseInviteLink>> | null>(null);
+  const [inviteErrorMessage, setInviteErrorMessage] = useState<string | null>(null);
 
   const loadEvents = useCallback(async () => {
     if (!configResult.ok) {
@@ -172,6 +178,49 @@ export default function App() {
     }
   }, [configResult, createForm, createStatus, loadEvents]);
 
+  const createInviteLink = useCallback(async () => {
+    if (!configResult.ok || !selectedEventId || inviteStatus === 'loading') {
+      return;
+    }
+
+    setInviteStatus('loading');
+    setInviteErrorMessage(null);
+
+    try {
+      const response = await createOrReuseInviteLink({
+        baseUrl: configResult.value.apiBaseUrl,
+        eventId: selectedEventId,
+        devUserId: configResult.value.devUserId,
+        includeDevUserHeader: configResult.value.isDevelopment,
+      });
+
+      setInviteLink(response);
+      setInviteStatus('success');
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        setInviteErrorMessage(error.message);
+      } else {
+        setInviteErrorMessage('Unexpected failure while creating invite link');
+      }
+      setInviteStatus('error');
+    }
+  }, [configResult, inviteStatus, selectedEventId]);
+
+  const shareInviteLink = useCallback(async () => {
+    if (!inviteLink) {
+      return;
+    }
+
+    try {
+      await Share.share({
+        message: inviteLink.url,
+        url: inviteLink.url,
+      });
+    } catch (error) {
+      setInviteErrorMessage(error instanceof Error ? error.message : 'Could not open share dialog');
+    }
+  }, [inviteLink]);
+
   if (!configResult.ok) {
     return (
       <SafeAreaView style={styles.container}>
@@ -194,6 +243,9 @@ export default function App() {
           onPress={() => {
             setScreen('list');
             setSelectedEventId(null);
+            setInviteStatus('idle');
+            setInviteErrorMessage(null);
+            setInviteLink(null);
             void loadEvents();
           }}
           style={styles.backButton}
@@ -274,6 +326,52 @@ export default function App() {
                   </View>
                 ))
               )}
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Invite link</Text>
+              {inviteStatus === 'loading' ? (
+                <View style={styles.centerState}>
+                  <ActivityIndicator size="small" />
+                  <Text style={styles.stateText}>Creating invite link...</Text>
+                </View>
+              ) : null}
+
+              {(() => {
+                const inviteView =
+                  inviteStatus === 'error' && !inviteLink
+                    ? mapInviteLinkToViewModel(null, inviteErrorMessage)
+                    : mapInviteLinkToViewModel(inviteLink);
+
+                return (
+                  <View style={styles.inviteContent}>
+                    <Text style={styles.cardText}>{inviteView.stateLabel}</Text>
+                    {inviteView.urlLabel ? <Text style={styles.cardText}>{inviteView.urlLabel}</Text> : null}
+                    {inviteView.tokenLabel ? <Text style={styles.cardText}>{inviteView.tokenLabel}</Text> : null}
+                    {inviteView.expiresAtLabel ? <Text style={styles.cardText}>{inviteView.expiresAtLabel}</Text> : null}
+                    {inviteView.statusLabel ? <Text style={styles.cardText}>{inviteView.statusLabel}</Text> : null}
+                    {inviteStatus !== 'error' && inviteErrorMessage ? (
+                      <Text style={styles.errorText}>Share failed: {inviteErrorMessage}</Text>
+                    ) : null}
+                  </View>
+                );
+              })()}
+
+              <View style={styles.inviteActions}>
+                <Pressable
+                  onPress={() => void createInviteLink()}
+                  style={[styles.refreshButton, inviteStatus === 'loading' && styles.disabledButton]}
+                  disabled={inviteStatus === 'loading'}
+                >
+                  <Text style={styles.refreshText}>Create or reuse invite link</Text>
+                </Pressable>
+
+                {inviteLink ? (
+                  <Pressable onPress={() => void shareInviteLink()} style={styles.createButton}>
+                    <Text style={styles.refreshText}>Share invite link</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
           </ScrollView>
         ) : null}
@@ -446,6 +544,9 @@ export default function App() {
                 setDetailsStatus('idle');
                 setDetailsErrorMessage(null);
                 setEventDetails(null);
+                setInviteStatus('idle');
+                setInviteErrorMessage(null);
+                setInviteLink(null);
               }}
               style={styles.card}
             >
@@ -581,6 +682,13 @@ const styles = StyleSheet.create({
   },
   createActions: {
     gap: 8,
+  },
+  inviteActions: {
+    gap: 8,
+    marginTop: 8,
+  },
+  inviteContent: {
+    gap: 4,
   },
   cancelButton: {
     alignSelf: 'flex-start',
