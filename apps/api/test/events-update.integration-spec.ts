@@ -166,7 +166,14 @@ describe('Events update API integration', () => {
       .set('x-dev-user-id', 'organizer-1')
       .expect(200);
 
-    expect(remindersResponse.body.reminders.map((reminder: { offsetMinutes: number; sendAt: string }) => reminder)).toEqual([
+    expect(
+      remindersResponse.body.reminders.map(
+        (reminder: { offsetMinutes: number; sendAt: string }) => ({
+          offsetMinutes: reminder.offsetMinutes,
+          sendAt: reminder.sendAt,
+        }),
+      ),
+    ).toEqual([
       { offsetMinutes: 120, sendAt: '2026-03-25T18:00:00.000Z' },
       { offsetMinutes: 30, sendAt: '2026-03-25T19:30:00.000Z' },
     ]);

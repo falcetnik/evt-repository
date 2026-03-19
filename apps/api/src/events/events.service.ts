@@ -129,7 +129,7 @@ export class EventsService {
 
       const nextStartsAt = dto.startsAt ? new Date(dto.startsAt) : eventRow.starts_at;
       const startsAtChanged = dto.startsAt !== undefined && nextStartsAt.getTime() !== eventRow.starts_at.getTime();
-      const hasCapacityLimitField = Object.prototype.hasOwnProperty.call(dto, 'capacityLimit');
+      const hasCapacityLimitField = dto.capacityLimit !== undefined;
       const capacityChanged = hasCapacityLimitField && dto.capacityLimit !== eventRow.capacity_limit;
 
       if (startsAtChanged) {
@@ -262,7 +262,7 @@ export class EventsService {
         updateData.timezone = dto.timezone;
       }
       if (hasCapacityLimitField) {
-        updateData.capacityLimit = dto.capacityLimit ?? null;
+          updateData.capacityLimit = dto.capacityLimit;
       }
 
       if (Object.keys(updateData).length === 0) {
