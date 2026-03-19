@@ -1,7 +1,7 @@
 export type ApiRequestOptions = {
   path: string;
   query?: Record<string, string | undefined>;
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   headers?: Record<string, string>;
 };
