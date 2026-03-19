@@ -386,3 +386,32 @@ pnpm --filter @event-app/mobile start
 - Verify app navigates to event details for the created event.
 - Tap **Back to events** and verify the new event appears after refresh.
 - Stop backend and submit again from create screen; verify a submit error appears and app does not crash.
+
+## EVT-16 incoming invite deep-link verification (PowerShell)
+1. Start the mobile app and keep Expo running:
+
+```powershell
+pnpm --filter @event-app/mobile start
+```
+
+2. Expo Go-style local URL test (replace host/port with the Expo URL shown in terminal if different):
+
+```powershell
+npx uri-scheme open "exp://127.0.0.1:8081/--/invite-links/<TOKEN>" --android
+```
+
+3. Custom-scheme test for a development build / installed app that has the `eventapp` scheme:
+
+```powershell
+npx uri-scheme open "eventapp://invite-links/<TOKEN>" --android
+```
+
+4. Unsupported URL safety check:
+
+```powershell
+npx uri-scheme open "eventapp://not-an-invite/path" --android
+```
+
+Expected behavior:
+- Supported invite links open/foreground the app, navigate to public invite, and load the token.
+- Unsupported URLs do not crash the app and do not navigate to public invite.
