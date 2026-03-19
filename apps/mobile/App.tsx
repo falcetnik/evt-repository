@@ -18,6 +18,13 @@ import { fetchOrganizerEventDetailsBundle } from './src/api/event-details';
 import { replaceEventReminders } from './src/api/event-reminders';
 import { ApiClientError } from './src/api/http';
 import { createOrReuseInviteLink } from './src/api/invite-link';
+import {
+  getPublicInvite,
+  submitPublicRsvp,
+  type PublicInviteResponse,
+  type PublicRsvpStatus,
+  type SubmitPublicRsvpResponse,
+} from './src/api/public-invite';
 import { type EventListScope, fetchOrganizerEvents } from './src/api/events';
 import { parseReminderOffsetsInput } from './src/features/event-details/reminder-editor-model';
 import {
@@ -27,6 +34,8 @@ import {
 import { mapEventDetailsToViewModel } from './src/features/event-details/event-details-model';
 import { mapInviteLinkToViewModel } from './src/features/event-details/invite-link-model';
 import { mapEventToCardModel } from './src/features/events-list/event-card-model';
+import { mapPublicInviteToViewModel } from './src/features/public-invite/public-invite-model';
+import { buildPublicRsvpPayloadFromForm } from './src/features/public-invite/public-rsvp-form-model';
 
 type LoadStatus = 'idle' | 'loading' | 'error' | 'success';
 
@@ -42,7 +51,7 @@ const initialCreateForm: CreateEventFormInput = {
 
 export default function App() {
   const configResult = useMemo(() => loadMobileConfig(), []);
-  const [screen, setScreen] = useState<'list' | 'details' | 'create'>('list');
+  const [screen, setScreen] = useState<'list' | 'details' | 'create' | 'public-invite'>('list');
   const [scope, setScope] = useState<EventListScope>('upcoming');
   const [status, setStatus] = useState<LoadStatus>('idle');
   const [events, setEvents] = useState<ReturnType<typeof mapEventToCardModel>[]>([]);
@@ -61,6 +70,27 @@ export default function App() {
   const [reminderInput, setReminderInput] = useState('');
   const [reminderErrorMessage, setReminderErrorMessage] = useState<string | null>(null);
   const [reminderSaveStatus, setReminderSaveStatus] = useState<'idle' | 'saving'>('idle');
+  const [publicInviteToken, setPublicInviteToken] = useState<string | null>(null);
+  const [publicInviteStatus, setPublicInviteStatus] = useState<LoadStatus>('idle');
+  const [publicInviteErrorMessage, setPublicInviteErrorMessage] = useState<string | null>(null);
+  const [publicInviteResponse, setPublicInviteResponse] = useState<PublicInviteResponse | null>(null);
+  const [publicRsvpInput, setPublicRsvpInput] = useState<{
+    guestName: string;
+    guestEmail: string;
+    status: PublicRsvpStatus | '';
+  }>({
+    guestName: '',
+    guestEmail: '',
+    status: '',
+  });
+  const [publicRsvpFieldErrors, setPublicRsvpFieldErrors] = useState<{
+    guestName?: string;
+    guestEmail?: string;
+    status?: string;
+  }>({});
+  const [publicRsvpErrorMessage, setPublicRsvpErrorMessage] = useState<string | null>(null);
+  const [publicRsvpStatus, setPublicRsvpStatus] = useState<'idle' | 'submitting'>('idle');
+  const [publicRsvpSuccess, setPublicRsvpSuccess] = useState<SubmitPublicRsvpResponse | null>(null);
 
   const loadEvents = useCallback(async () => {
     if (!configResult.ok) {
@@ -288,6 +318,82 @@ export default function App() {
     }
   }, [configResult, loadEventDetails, reminderInput, reminderSaveStatus, selectedEventId]);
 
+  const loadPublicInvite = useCallback(async () => {
+    if (!configResult.ok || !publicInviteToken) {
+      return;
+    }
+
+    setPublicInviteStatus('loading');
+    setPublicInviteErrorMessage(null);
+
+    try {
+      const response = await getPublicInvite({
+        baseUrl: configResult.value.apiBaseUrl,
+        token: publicInviteToken,
+      });
+
+      setPublicInviteResponse(response);
+      setPublicInviteStatus('success');
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        setPublicInviteErrorMessage(error.message);
+      } else {
+        setPublicInviteErrorMessage('Could not load public invite. Please try again.');
+      }
+      setPublicInviteStatus('error');
+    }
+  }, [configResult, publicInviteToken]);
+
+  useEffect(() => {
+    if (screen === 'public-invite') {
+      void loadPublicInvite();
+    }
+  }, [loadPublicInvite, screen]);
+
+  const submitPublicInviteRsvp = useCallback(async () => {
+    if (!configResult.ok || !publicInviteToken || publicRsvpStatus === 'submitting') {
+      return;
+    }
+
+    const parseResult = buildPublicRsvpPayloadFromForm(publicRsvpInput);
+
+    if (!parseResult.ok) {
+      setPublicRsvpFieldErrors(parseResult.fieldErrors);
+      setPublicRsvpErrorMessage(parseResult.message);
+      return;
+    }
+
+    setPublicRsvpStatus('submitting');
+    setPublicRsvpFieldErrors({});
+    setPublicRsvpErrorMessage(null);
+
+    try {
+      const response = await submitPublicRsvp({
+        baseUrl: configResult.value.apiBaseUrl,
+        token: publicInviteToken,
+        payload: parseResult.payload,
+      });
+
+      setPublicRsvpInput(parseResult.payload);
+      setPublicRsvpSuccess(response);
+      await loadPublicInvite();
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        if (error.kind === 'network') {
+          setPublicRsvpErrorMessage('Could not submit RSVP. Check network and try again.');
+        } else if (error.kind === 'http') {
+          setPublicRsvpErrorMessage('Could not save RSVP. Please verify your input and retry.');
+        } else {
+          setPublicRsvpErrorMessage('Could not save RSVP. Please retry.');
+        }
+      } else {
+        setPublicRsvpErrorMessage('Unexpected failure while submitting RSVP.');
+      }
+    } finally {
+      setPublicRsvpStatus('idle');
+    }
+  }, [configResult, loadPublicInvite, publicInviteToken, publicRsvpInput, publicRsvpStatus]);
+
   if (!configResult.ok) {
     return (
       <SafeAreaView style={styles.container}>
@@ -298,6 +404,164 @@ export default function App() {
           <Text style={styles.errorText}>{configResult.error}</Text>
           <Text style={styles.errorText}>Set values in apps/mobile/.env and restart Expo.</Text>
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (screen === 'public-invite') {
+    if (!publicInviteToken) {
+      return (
+        <SafeAreaView style={styles.container}>
+          <StatusBar style="auto" />
+          <Pressable onPress={() => setScreen('details')} style={styles.backButton}>
+            <Text style={styles.backButtonText}>Back to event details</Text>
+          </Pressable>
+          <View style={styles.errorBox}>
+            <Text style={styles.errorTitle}>Missing invite token</Text>
+            <Text style={styles.errorText}>Cannot load invite preview without a token.</Text>
+          </View>
+        </SafeAreaView>
+      );
+    }
+
+    const inviteView = publicInviteResponse ? mapPublicInviteToViewModel(publicInviteResponse) : null;
+
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar style="auto" />
+        <Pressable onPress={() => setScreen('details')} style={styles.backButton}>
+          <Text style={styles.backButtonText}>Back to event details</Text>
+        </Pressable>
+        <Pressable onPress={() => void loadPublicInvite()} style={styles.refreshButton}>
+          <Text style={styles.refreshText}>Refresh invite preview</Text>
+        </Pressable>
+
+        {publicInviteStatus === 'loading' ? (
+          <View style={styles.centerState}>
+            <ActivityIndicator size="large" />
+            <Text style={styles.stateText}>Loading public invite...</Text>
+          </View>
+        ) : null}
+
+        {publicInviteStatus === 'error' ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorTitle}>Could not load public invite</Text>
+            <Text style={styles.errorText}>{publicInviteErrorMessage ?? 'Please try again.'}</Text>
+            <Pressable onPress={() => void loadPublicInvite()} style={styles.retryButton}>
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {inviteView && publicInviteStatus === 'success' ? (
+          <ScrollView contentContainerStyle={styles.detailsContent}>
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>{inviteView.event.title}</Text>
+              <Text style={styles.cardText}>{inviteView.event.descriptionLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.event.startsAtLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.event.timezoneLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.event.locationLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.event.capacityLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.expiryLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.tokenLabel}</Text>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Public RSVP summary</Text>
+              <Text style={styles.cardText}>{inviteView.summary.goingLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.summary.maybeLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.summary.notGoingLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.summary.totalLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.summary.confirmedGoingLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.summary.waitlistedGoingLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.summary.remainingSpotsLabel}</Text>
+              <Text style={styles.cardText}>{inviteView.summary.isFullLabel}</Text>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Submit RSVP</Text>
+              <TextInput
+                value={publicRsvpInput.guestName}
+                onChangeText={(value) => setPublicRsvpInput((prev) => ({ ...prev, guestName: value }))}
+                placeholder="Guest name"
+                style={styles.input}
+                editable={publicRsvpStatus !== 'submitting'}
+              />
+              {publicRsvpFieldErrors.guestName ? (
+                <Text style={styles.errorText}>{publicRsvpFieldErrors.guestName}</Text>
+              ) : null}
+
+              <TextInput
+                value={publicRsvpInput.guestEmail}
+                onChangeText={(value) => setPublicRsvpInput((prev) => ({ ...prev, guestEmail: value }))}
+                placeholder="guest@example.com"
+                style={styles.input}
+                editable={publicRsvpStatus !== 'submitting'}
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+              {publicRsvpFieldErrors.guestEmail ? (
+                <Text style={styles.errorText}>{publicRsvpFieldErrors.guestEmail}</Text>
+              ) : null}
+
+              <View style={styles.scopeRow}>
+                {[
+                  { label: 'Going', value: 'going' },
+                  { label: 'Maybe', value: 'maybe' },
+                  { label: 'Not going', value: 'not_going' },
+                ].map((option) => (
+                  <Pressable
+                    key={option.value}
+                    onPress={() =>
+                      setPublicRsvpInput((prev) => ({ ...prev, status: option.value as PublicRsvpStatus }))
+                    }
+                    style={[styles.scopeButton, publicRsvpInput.status === option.value && styles.scopeButtonActive]}
+                    disabled={publicRsvpStatus === 'submitting'}
+                  >
+                    <Text
+                      style={[
+                        styles.scopeButtonText,
+                        publicRsvpInput.status === option.value && styles.scopeButtonTextActive,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {publicRsvpFieldErrors.status ? <Text style={styles.errorText}>{publicRsvpFieldErrors.status}</Text> : null}
+
+              {publicRsvpErrorMessage ? (
+                <View style={styles.errorBox}>
+                  <Text style={styles.errorTitle}>Could not submit RSVP</Text>
+                  <Text style={styles.errorText}>{publicRsvpErrorMessage}</Text>
+                </View>
+              ) : null}
+
+              {publicRsvpSuccess ? (
+                <View style={styles.subCard}>
+                  <Text style={styles.cardText}>
+                    RSVP saved for {publicRsvpSuccess.guestName} ({publicRsvpSuccess.guestEmail})
+                  </Text>
+                  <Text style={styles.cardText}>
+                    RSVP saved: {publicRsvpSuccess.status} ({publicRsvpSuccess.attendanceState}
+                    {publicRsvpSuccess.waitlistPosition === null ? '' : ` #${publicRsvpSuccess.waitlistPosition}`})
+                  </Text>
+                </View>
+              ) : null}
+
+              <Pressable
+                onPress={() => void submitPublicInviteRsvp()}
+                style={[styles.refreshButton, publicRsvpStatus === 'submitting' && styles.disabledButton]}
+                disabled={publicRsvpStatus === 'submitting'}
+              >
+                <Text style={styles.refreshText}>
+                  {publicRsvpStatus === 'submitting' ? 'Submitting RSVP...' : 'Submit RSVP'}
+                </Text>
+              </Pressable>
+            </View>
+          </ScrollView>
+        ) : null}
       </SafeAreaView>
     );
   }
@@ -314,6 +578,15 @@ export default function App() {
             setInviteErrorMessage(null);
             setInviteLink(null);
             cancelReminderEditing();
+            setPublicInviteToken(null);
+            setPublicInviteStatus('idle');
+            setPublicInviteErrorMessage(null);
+            setPublicInviteResponse(null);
+            setPublicRsvpInput({ guestName: '', guestEmail: '', status: '' });
+            setPublicRsvpFieldErrors({});
+            setPublicRsvpErrorMessage(null);
+            setPublicRsvpStatus('idle');
+            setPublicRsvpSuccess(null);
             void loadEvents();
           }}
           style={styles.backButton}
@@ -474,9 +747,26 @@ export default function App() {
                 </Pressable>
 
                 {inviteLink ? (
-                  <Pressable onPress={() => void shareInviteLink()} style={styles.createButton}>
-                    <Text style={styles.refreshText}>Share invite link</Text>
-                  </Pressable>
+                  <>
+                    <Pressable onPress={() => void shareInviteLink()} style={styles.createButton}>
+                      <Text style={styles.refreshText}>Share invite link</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        setPublicInviteToken(inviteLink.token);
+                        setPublicInviteStatus('idle');
+                        setPublicInviteErrorMessage(null);
+                        setPublicInviteResponse(null);
+                        setPublicRsvpFieldErrors({});
+                        setPublicRsvpErrorMessage(null);
+                        setPublicRsvpSuccess(null);
+                        setScreen('public-invite');
+                      }}
+                      style={styles.backButton}
+                    >
+                      <Text style={styles.backButtonText}>Preview invite</Text>
+                    </Pressable>
+                  </>
                 ) : null}
               </View>
             </View>
@@ -655,6 +945,15 @@ export default function App() {
                 setInviteErrorMessage(null);
                 setInviteLink(null);
                 cancelReminderEditing();
+                setPublicInviteToken(null);
+                setPublicInviteStatus('idle');
+                setPublicInviteErrorMessage(null);
+                setPublicInviteResponse(null);
+                setPublicRsvpInput({ guestName: '', guestEmail: '', status: '' });
+                setPublicRsvpFieldErrors({});
+                setPublicRsvpErrorMessage(null);
+                setPublicRsvpStatus('idle');
+                setPublicRsvpSuccess(null);
               }}
               style={styles.card}
             >
