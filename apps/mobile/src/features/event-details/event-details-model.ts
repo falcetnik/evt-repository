@@ -30,6 +30,7 @@ export type EventDetailsViewModel = {
   attendeesEmptyMessage: string | null;
   reminders: Array<{
     key: string;
+    offsetMinutes: number;
     offsetLabel: string;
     sendAtLabel: string;
   }>;
@@ -78,6 +79,7 @@ export const mapEventDetailsToViewModel = (bundle: OrganizerEventDetailsBundle):
 
   const reminders = bundle.reminders.reminders.map((reminder) => ({
     key: reminder.reminderId,
+    offsetMinutes: reminder.offsetMinutes,
     offsetLabel: `Offset: ${reminder.offsetMinutes} min before`,
     sendAtLabel: `Sends at: ${toIsoLabel(reminder.sendAt)}`,
   }));

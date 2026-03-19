@@ -15,9 +15,11 @@ import {
 import { createOrganizerEvent } from './src/api/create-event';
 import { loadMobileConfig } from './src/api/config';
 import { fetchOrganizerEventDetailsBundle } from './src/api/event-details';
+import { replaceEventReminders } from './src/api/event-reminders';
 import { ApiClientError } from './src/api/http';
 import { createOrReuseInviteLink } from './src/api/invite-link';
 import { type EventListScope, fetchOrganizerEvents } from './src/api/events';
+import { parseReminderOffsetsInput } from './src/features/event-details/reminder-editor-model';
 import {
   buildCreateEventPayloadFromForm,
   type CreateEventFormInput,
@@ -55,6 +57,10 @@ export default function App() {
   const [inviteStatus, setInviteStatus] = useState<LoadStatus>('idle');
   const [inviteLink, setInviteLink] = useState<Awaited<ReturnType<typeof createOrReuseInviteLink>> | null>(null);
   const [inviteErrorMessage, setInviteErrorMessage] = useState<string | null>(null);
+  const [isReminderEditing, setIsReminderEditing] = useState(false);
+  const [reminderInput, setReminderInput] = useState('');
+  const [reminderErrorMessage, setReminderErrorMessage] = useState<string | null>(null);
+  const [reminderSaveStatus, setReminderSaveStatus] = useState<'idle' | 'saving'>('idle');
 
   const loadEvents = useCallback(async () => {
     if (!configResult.ok) {
@@ -221,6 +227,67 @@ export default function App() {
     }
   }, [inviteLink]);
 
+  const startReminderEditing = useCallback(() => {
+    if (!eventDetails) {
+      return;
+    }
+
+    setReminderInput(eventDetails.reminders.map((reminder) => reminder.offsetMinutes).join(', '));
+    setReminderErrorMessage(null);
+    setIsReminderEditing(true);
+  }, [eventDetails]);
+
+  const cancelReminderEditing = useCallback(() => {
+    setIsReminderEditing(false);
+    setReminderInput('');
+    setReminderErrorMessage(null);
+    setReminderSaveStatus('idle');
+  }, []);
+
+  const saveReminders = useCallback(async () => {
+    if (!configResult.ok || !selectedEventId || reminderSaveStatus === 'saving') {
+      return;
+    }
+
+    const parseResult = parseReminderOffsetsInput(reminderInput);
+    if (!parseResult.ok) {
+      setReminderErrorMessage(parseResult.message);
+      return;
+    }
+
+    setReminderSaveStatus('saving');
+    setReminderErrorMessage(null);
+
+    try {
+      await replaceEventReminders({
+        baseUrl: configResult.value.apiBaseUrl,
+        eventId: selectedEventId,
+        offsetsMinutes: parseResult.offsetsMinutes,
+        devUserId: configResult.value.devUserId,
+        includeDevUserHeader: configResult.value.isDevelopment,
+      });
+
+      await loadEventDetails();
+      setIsReminderEditing(false);
+      setReminderInput('');
+      setReminderErrorMessage(null);
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        if (error.kind === 'http' && error.status === 400) {
+          setReminderErrorMessage(error.message);
+        } else if (error.kind === 'network') {
+          setReminderErrorMessage('Could not save reminders. Check network and try again.');
+        } else {
+          setReminderErrorMessage('Could not save reminders. Please try again.');
+        }
+      } else {
+        setReminderErrorMessage('Unexpected failure while saving reminders.');
+      }
+    } finally {
+      setReminderSaveStatus('idle');
+    }
+  }, [configResult, loadEventDetails, reminderInput, reminderSaveStatus, selectedEventId]);
+
   if (!configResult.ok) {
     return (
       <SafeAreaView style={styles.container}>
@@ -246,6 +313,7 @@ export default function App() {
             setInviteStatus('idle');
             setInviteErrorMessage(null);
             setInviteLink(null);
+            cancelReminderEditing();
             void loadEvents();
           }}
           style={styles.backButton}
@@ -316,15 +384,54 @@ export default function App() {
 
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Reminders</Text>
-              {eventDetails.reminders.length === 0 ? (
-                <Text style={styles.cardText}>{eventDetails.remindersEmptyMessage}</Text>
+              {!isReminderEditing ? (
+                <>
+                  {eventDetails.reminders.length === 0 ? (
+                    <Text style={styles.cardText}>{eventDetails.remindersEmptyMessage}</Text>
+                  ) : (
+                    eventDetails.reminders.map((reminder) => (
+                      <View key={reminder.key} style={styles.subCard}>
+                        <Text style={styles.cardText}>{reminder.offsetLabel}</Text>
+                        <Text style={styles.cardText}>{reminder.sendAtLabel}</Text>
+                      </View>
+                    ))
+                  )}
+                  <Pressable onPress={startReminderEditing} style={styles.refreshButton}>
+                    <Text style={styles.refreshText}>Edit reminders</Text>
+                  </Pressable>
+                </>
               ) : (
-                eventDetails.reminders.map((reminder) => (
-                  <View key={reminder.key} style={styles.subCard}>
-                    <Text style={styles.cardText}>{reminder.offsetLabel}</Text>
-                    <Text style={styles.cardText}>{reminder.sendAtLabel}</Text>
+                <View style={styles.reminderEditor}>
+                  <Text style={styles.cardText}>Reminder offsets (minutes, comma separated)</Text>
+                  <TextInput
+                    value={reminderInput}
+                    onChangeText={setReminderInput}
+                    placeholder="1440, 120, 30"
+                    style={styles.input}
+                    editable={reminderSaveStatus !== 'saving'}
+                    keyboardType="numbers-and-punctuation"
+                  />
+                  <Text style={styles.subtitle}>Use comma-separated minutes, for example: 1440, 120, 30</Text>
+                  {reminderErrorMessage ? <Text style={styles.errorText}>{reminderErrorMessage}</Text> : null}
+                  <View style={styles.createActions}>
+                    <Pressable
+                      onPress={() => void saveReminders()}
+                      style={[styles.refreshButton, reminderSaveStatus === 'saving' && styles.disabledButton]}
+                      disabled={reminderSaveStatus === 'saving'}
+                    >
+                      <Text style={styles.refreshText}>
+                        {reminderSaveStatus === 'saving' ? 'Saving reminders...' : 'Save reminders'}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={cancelReminderEditing}
+                      style={styles.cancelButton}
+                      disabled={reminderSaveStatus === 'saving'}
+                    >
+                      <Text style={styles.cancelText}>Cancel</Text>
+                    </Pressable>
                   </View>
-                ))
+                </View>
               )}
             </View>
 
@@ -547,6 +654,7 @@ export default function App() {
                 setInviteStatus('idle');
                 setInviteErrorMessage(null);
                 setInviteLink(null);
+                cancelReminderEditing();
               }}
               style={styles.card}
             >
@@ -689,6 +797,9 @@ const styles = StyleSheet.create({
   },
   inviteContent: {
     gap: 4,
+  },
+  reminderEditor: {
+    gap: 8,
   },
   cancelButton: {
     alignSelf: 'flex-start',
