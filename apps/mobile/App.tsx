@@ -35,6 +35,7 @@ import { mapEventDetailsToViewModel } from './src/features/event-details/event-d
 import { mapInviteLinkToViewModel } from './src/features/event-details/invite-link-model';
 import { mapEventToCardModel } from './src/features/events-list/event-card-model';
 import { mapPublicInviteToViewModel } from './src/features/public-invite/public-invite-model';
+import { validateInviteTokenEntry } from './src/features/public-invite/invite-token-entry-model';
 import { buildPublicRsvpPayloadFromForm } from './src/features/public-invite/public-rsvp-form-model';
 
 type LoadStatus = 'idle' | 'loading' | 'error' | 'success';
@@ -49,9 +50,11 @@ const initialCreateForm: CreateEventFormInput = {
   capacityLimit: '',
 };
 
+type PublicInviteOrigin = 'details-preview' | 'standalone-entry';
+
 export default function App() {
   const configResult = useMemo(() => loadMobileConfig(), []);
-  const [screen, setScreen] = useState<'list' | 'details' | 'create' | 'public-invite'>('list');
+  const [screen, setScreen] = useState<'list' | 'details' | 'create' | 'public-invite-entry' | 'public-invite'>('list');
   const [scope, setScope] = useState<EventListScope>('upcoming');
   const [status, setStatus] = useState<LoadStatus>('idle');
   const [events, setEvents] = useState<ReturnType<typeof mapEventToCardModel>[]>([]);
@@ -71,6 +74,9 @@ export default function App() {
   const [reminderErrorMessage, setReminderErrorMessage] = useState<string | null>(null);
   const [reminderSaveStatus, setReminderSaveStatus] = useState<'idle' | 'saving'>('idle');
   const [publicInviteToken, setPublicInviteToken] = useState<string | null>(null);
+  const [publicInviteOrigin, setPublicInviteOrigin] = useState<PublicInviteOrigin>('details-preview');
+  const [inviteEntryInput, setInviteEntryInput] = useState('');
+  const [inviteEntryErrorMessage, setInviteEntryErrorMessage] = useState<string | null>(null);
   const [publicInviteStatus, setPublicInviteStatus] = useState<LoadStatus>('idle');
   const [publicInviteErrorMessage, setPublicInviteErrorMessage] = useState<string | null>(null);
   const [publicInviteResponse, setPublicInviteResponse] = useState<PublicInviteResponse | null>(null);
@@ -394,6 +400,26 @@ export default function App() {
     }
   }, [configResult, loadPublicInvite, publicInviteToken, publicRsvpInput, publicRsvpStatus]);
 
+  const submitInviteEntry = useCallback(() => {
+    const result = validateInviteTokenEntry(inviteEntryInput);
+
+    if (!result.ok) {
+      setInviteEntryErrorMessage(result.message);
+      return;
+    }
+
+    setInviteEntryErrorMessage(null);
+    setPublicInviteToken(result.token);
+    setPublicInviteOrigin('standalone-entry');
+    setPublicInviteStatus('idle');
+    setPublicInviteErrorMessage(null);
+    setPublicInviteResponse(null);
+    setPublicRsvpFieldErrors({});
+    setPublicRsvpErrorMessage(null);
+    setPublicRsvpSuccess(null);
+    setScreen('public-invite');
+  }, [inviteEntryInput]);
+
   if (!configResult.ok) {
     return (
       <SafeAreaView style={styles.container}>
@@ -413,8 +439,13 @@ export default function App() {
       return (
         <SafeAreaView style={styles.container}>
           <StatusBar style="auto" />
-          <Pressable onPress={() => setScreen('details')} style={styles.backButton}>
-            <Text style={styles.backButtonText}>Back to event details</Text>
+          <Pressable
+            onPress={() => setScreen(publicInviteOrigin === 'standalone-entry' ? 'public-invite-entry' : 'details')}
+            style={styles.backButton}
+          >
+            <Text style={styles.backButtonText}>
+              {publicInviteOrigin === 'standalone-entry' ? 'Back to open invite' : 'Back to event details'}
+            </Text>
           </Pressable>
           <View style={styles.errorBox}>
             <Text style={styles.errorTitle}>Missing invite token</Text>
@@ -429,8 +460,13 @@ export default function App() {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar style="auto" />
-        <Pressable onPress={() => setScreen('details')} style={styles.backButton}>
-          <Text style={styles.backButtonText}>Back to event details</Text>
+        <Pressable
+          onPress={() => setScreen(publicInviteOrigin === 'standalone-entry' ? 'public-invite-entry' : 'details')}
+          style={styles.backButton}
+        >
+          <Text style={styles.backButtonText}>
+            {publicInviteOrigin === 'standalone-entry' ? 'Back to open invite' : 'Back to event details'}
+          </Text>
         </Pressable>
         <Pressable onPress={() => void loadPublicInvite()} style={styles.refreshButton}>
           <Text style={styles.refreshText}>Refresh invite preview</Text>
@@ -562,6 +598,52 @@ export default function App() {
             </View>
           </ScrollView>
         ) : null}
+      </SafeAreaView>
+    );
+  }
+
+  if (screen === 'public-invite-entry') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar style="auto" />
+        <Text style={styles.title}>Open invite</Text>
+        <Text style={styles.subtitle}>Paste an invite token or full invite URL</Text>
+
+        <TextInput
+          value={inviteEntryInput}
+          onChangeText={(value) => {
+            setInviteEntryInput(value);
+            if (inviteEntryErrorMessage) {
+              setInviteEntryErrorMessage(null);
+            }
+          }}
+          placeholder="abc123token or https://example.com/api/v1/invite-links/abc123token"
+          style={styles.input}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+
+        <Text style={styles.subtitle}>Paste an invite token or full invite URL</Text>
+        {inviteEntryErrorMessage ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{inviteEntryErrorMessage}</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.createActions}>
+          <Pressable onPress={submitInviteEntry} style={styles.refreshButton}>
+            <Text style={styles.refreshText}>Open invite</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setInviteEntryErrorMessage(null);
+              setScreen('list');
+            }}
+            style={styles.cancelButton}
+          >
+            <Text style={styles.cancelText}>Back</Text>
+          </Pressable>
+        </View>
       </SafeAreaView>
     );
   }
@@ -754,6 +836,7 @@ export default function App() {
                     <Pressable
                       onPress={() => {
                         setPublicInviteToken(inviteLink.token);
+                        setPublicInviteOrigin('details-preview');
                         setPublicInviteStatus('idle');
                         setPublicInviteErrorMessage(null);
                         setPublicInviteResponse(null);
@@ -903,6 +986,15 @@ export default function App() {
         style={styles.createButton}
       >
         <Text style={styles.refreshText}>Create event</Text>
+      </Pressable>
+      <Pressable
+        onPress={() => {
+          setInviteEntryErrorMessage(null);
+          setScreen('public-invite-entry');
+        }}
+        style={styles.backButton}
+      >
+        <Text style={styles.backButtonText}>Open invite</Text>
       </Pressable>
 
       {status === 'loading' ? (
