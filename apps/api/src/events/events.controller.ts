@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBody, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { AuthUser } from '../auth/auth-user.type';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -6,6 +6,7 @@ import { DevAuthGuard } from '../auth/dev-auth.guard';
 import { CreateEventDto } from './dto/create-event.dto';
 import { ReplaceEventRemindersDto } from './dto/replace-event-reminders.dto';
 import { ListEventsQueryDto } from './dto/list-events.query.dto';
+import { UpdateEventDto } from './dto/update-event.dto';
 import { EventsService } from './events.service';
 
 @ApiTags('events')
@@ -40,6 +41,21 @@ export class EventsController {
   @ApiResponse({ status: 404, description: 'Event not found' })
   getEventById(@CurrentUser() currentUser: AuthUser, @Param('eventId') eventId: string) {
     return this.eventsService.getEventById(currentUser, eventId);
+  }
+
+  @Patch(':eventId')
+  @ApiOperation({ summary: 'Update organizer event by id' })
+  @ApiBody({ type: UpdateEventDto })
+  @ApiResponse({ status: 200, description: 'Event updated' })
+  @ApiResponse({ status: 400, description: 'Invalid payload or unsafe event update' })
+  @ApiResponse({ status: 401, description: 'Unauthorized organizer' })
+  @ApiResponse({ status: 404, description: 'Event not found' })
+  updateEvent(
+    @CurrentUser() currentUser: AuthUser,
+    @Param('eventId') eventId: string,
+    @Body() dto: UpdateEventDto,
+  ) {
+    return this.eventsService.updateEvent(currentUser, eventId, dto);
   }
 
   @Get(':eventId/attendees')
