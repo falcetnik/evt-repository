@@ -8,21 +8,36 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
+import { createOrganizerEvent } from './src/api/create-event';
 import { loadMobileConfig } from './src/api/config';
 import { fetchOrganizerEventDetailsBundle } from './src/api/event-details';
 import { ApiClientError } from './src/api/http';
 import { type EventListScope, fetchOrganizerEvents } from './src/api/events';
+import {
+  buildCreateEventPayloadFromForm,
+  type CreateEventFormInput,
+} from './src/features/create-event/create-event-form-model';
 import { mapEventDetailsToViewModel } from './src/features/event-details/event-details-model';
 import { mapEventToCardModel } from './src/features/events-list/event-card-model';
 
 type LoadStatus = 'idle' | 'loading' | 'error' | 'success';
 
 const scopeOptions: EventListScope[] = ['upcoming', 'past', 'all'];
+const initialCreateForm: CreateEventFormInput = {
+  title: '',
+  description: '',
+  location: '',
+  startsAt: '',
+  timezone: '',
+  capacityLimit: '',
+};
 
 export default function App() {
   const configResult = useMemo(() => loadMobileConfig(), []);
+  const [screen, setScreen] = useState<'list' | 'details' | 'create'>('list');
   const [scope, setScope] = useState<EventListScope>('upcoming');
   const [status, setStatus] = useState<LoadStatus>('idle');
   const [events, setEvents] = useState<ReturnType<typeof mapEventToCardModel>[]>([]);
@@ -31,6 +46,9 @@ export default function App() {
   const [detailsStatus, setDetailsStatus] = useState<LoadStatus>('idle');
   const [detailsErrorMessage, setDetailsErrorMessage] = useState<string | null>(null);
   const [eventDetails, setEventDetails] = useState<ReturnType<typeof mapEventDetailsToViewModel> | null>(null);
+  const [createForm, setCreateForm] = useState<CreateEventFormInput>(initialCreateForm);
+  const [createStatus, setCreateStatus] = useState<'idle' | 'submitting' | 'error'>('idle');
+  const [createErrorMessage, setCreateErrorMessage] = useState<string | null>(null);
 
   const loadEvents = useCallback(async () => {
     if (!configResult.ok) {
@@ -95,10 +113,64 @@ export default function App() {
   }, [configResult, loadEvents]);
 
   useEffect(() => {
-    if (selectedEventId) {
+    if (screen === 'details' && selectedEventId) {
       void loadEventDetails();
     }
-  }, [selectedEventId, loadEventDetails]);
+  }, [screen, selectedEventId, loadEventDetails]);
+
+  const updateCreateFormField = useCallback(
+    (field: keyof CreateEventFormInput, value: string) => {
+      setCreateForm((prev) => ({ ...prev, [field]: value }));
+    },
+    [],
+  );
+
+  const submitCreateEvent = useCallback(async () => {
+    if (!configResult.ok || createStatus === 'submitting') {
+      return;
+    }
+
+    const buildResult = buildCreateEventPayloadFromForm(createForm);
+    if (!buildResult.ok) {
+      setCreateErrorMessage(buildResult.message);
+      setCreateStatus('error');
+      return;
+    }
+
+    setCreateStatus('submitting');
+    setCreateErrorMessage(null);
+
+    try {
+      const createdEvent = await createOrganizerEvent({
+        baseUrl: configResult.value.apiBaseUrl,
+        payload: buildResult.payload,
+        devUserId: configResult.value.devUserId,
+        includeDevUserHeader: configResult.value.isDevelopment,
+      });
+
+      setCreateForm(initialCreateForm);
+      setSelectedEventId(createdEvent.id);
+      setDetailsStatus('idle');
+      setDetailsErrorMessage(null);
+      setEventDetails(null);
+      setCreateStatus('idle');
+      setScreen('details');
+      void loadEvents();
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        if (error.kind === 'network') {
+          setCreateErrorMessage('Could not submit event. Check network and try again.');
+        } else if (error.kind === 'http' && error.status === 400) {
+          setCreateErrorMessage('Could not create event. Please verify your inputs and try again.');
+        } else {
+          setCreateErrorMessage(error.message);
+        }
+      } else {
+        setCreateErrorMessage('Unexpected failure while creating event');
+      }
+      setCreateStatus('error');
+    }
+  }, [configResult, createForm, createStatus, loadEvents]);
 
   if (!configResult.ok) {
     return (
@@ -114,13 +186,15 @@ export default function App() {
     );
   }
 
-  if (selectedEventId) {
+  if (screen === 'details' && selectedEventId) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar style="auto" />
         <Pressable
           onPress={() => {
+            setScreen('list');
             setSelectedEventId(null);
+            void loadEvents();
           }}
           style={styles.backButton}
         >
@@ -207,6 +281,99 @@ export default function App() {
     );
   }
 
+  if (screen === 'create') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar style="auto" />
+        <Text style={styles.title}>Create event</Text>
+        <Text style={styles.subtitle}>Fill the form and submit to create a new organizer event.</Text>
+
+        <ScrollView contentContainerStyle={styles.formContent}>
+          <TextInput
+            value={createForm.title}
+            onChangeText={(value) => updateCreateFormField('title', value)}
+            placeholder="Friday Board Games"
+            style={styles.input}
+            editable={createStatus !== 'submitting'}
+          />
+          <TextInput
+            value={createForm.description}
+            onChangeText={(value) => updateCreateFormField('description', value)}
+            placeholder="Bring drinks if you want"
+            style={styles.input}
+            editable={createStatus !== 'submitting'}
+          />
+          <TextInput
+            value={createForm.location}
+            onChangeText={(value) => updateCreateFormField('location', value)}
+            placeholder="Prospekt Mira 10"
+            style={styles.input}
+            editable={createStatus !== 'submitting'}
+          />
+          <TextInput
+            value={createForm.startsAt}
+            onChangeText={(value) => updateCreateFormField('startsAt', value)}
+            placeholder="2026-03-25T19:30:00.000Z"
+            style={styles.input}
+            editable={createStatus !== 'submitting'}
+            autoCapitalize="none"
+          />
+          <TextInput
+            value={createForm.timezone}
+            onChangeText={(value) => updateCreateFormField('timezone', value)}
+            placeholder="Europe/Moscow"
+            style={styles.input}
+            editable={createStatus !== 'submitting'}
+            autoCapitalize="none"
+          />
+          <TextInput
+            value={createForm.capacityLimit}
+            onChangeText={(value) => updateCreateFormField('capacityLimit', value)}
+            placeholder="8"
+            style={styles.input}
+            editable={createStatus !== 'submitting'}
+            keyboardType="number-pad"
+          />
+
+          {createStatus === 'submitting' ? (
+            <View style={styles.centerState}>
+              <ActivityIndicator size="small" />
+              <Text style={styles.stateText}>Creating event...</Text>
+            </View>
+          ) : null}
+
+          {createErrorMessage ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorTitle}>Could not create event</Text>
+              <Text style={styles.errorText}>{createErrorMessage}</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.createActions}>
+            <Pressable
+              onPress={() => void submitCreateEvent()}
+              style={[styles.refreshButton, createStatus === 'submitting' && styles.disabledButton]}
+              disabled={createStatus === 'submitting'}
+            >
+              <Text style={styles.refreshText}>Create event</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setCreateErrorMessage(null);
+                setCreateStatus('idle');
+                setScreen('list');
+              }}
+              style={styles.cancelButton}
+              disabled={createStatus === 'submitting'}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="auto" />
@@ -231,6 +398,16 @@ export default function App() {
 
       <Pressable onPress={() => void loadEvents()} style={styles.refreshButton}>
         <Text style={styles.refreshText}>Refresh</Text>
+      </Pressable>
+      <Pressable
+        onPress={() => {
+          setCreateErrorMessage(null);
+          setCreateStatus('idle');
+          setScreen('create');
+        }}
+        style={styles.createButton}
+      >
+        <Text style={styles.refreshText}>Create event</Text>
       </Pressable>
 
       {status === 'loading' ? (
@@ -264,6 +441,7 @@ export default function App() {
           renderItem={({ item }) => (
             <Pressable
               onPress={() => {
+                setScreen('details');
                 setSelectedEventId(item.id);
                 setDetailsStatus('idle');
                 setDetailsErrorMessage(null);
@@ -380,6 +558,43 @@ const styles = StyleSheet.create({
   retryText: {
     color: '#fff',
     fontWeight: '600',
+  },
+  createButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#1d4ed8',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  formContent: {
+    gap: 10,
+    paddingBottom: 30,
+  },
+  input: {
+    backgroundColor: '#fff',
+    borderColor: '#d1d5db',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#111827',
+  },
+  createActions: {
+    gap: 8,
+  },
+  cancelButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#6b7280',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  cancelText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
   listContent: {
     gap: 10,
