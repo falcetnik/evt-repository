@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AttendeeResponseStatus } from '@prisma/client';
 import { buildRsvpSummary, deriveAttendanceState, sortAttendeesForOrganizer } from '../attendance/attendance-summary';
 import type { AuthUser } from '../auth/auth-user.type';
@@ -6,6 +6,7 @@ import { PrismaService } from '../database/prisma.service';
 import { buildReminderPlan } from './reminders/reminder-schedule';
 import { CreateEventDto } from './dto/create-event.dto';
 import { EventListScope } from './dto/list-events.query.dto';
+import { UpdateEventDto } from './dto/update-event.dto';
 
 @Injectable()
 export class EventsService {
@@ -95,6 +96,186 @@ export class EventsService {
     const event = await this.findOwnedEvent(currentUser, eventId);
 
     return this.toResponse(event);
+  }
+
+  async updateEvent(currentUser: AuthUser, eventId: string, dto: UpdateEventDto) {
+    const now = new Date();
+
+    const updatedEvent = await this.prisma.client.$transaction(async (tx) => {
+      const eventRows = await tx.$queryRaw<
+        Array<{
+          id: string;
+          title: string;
+          description: string | null;
+          location_name: string | null;
+          starts_at: Date;
+          timezone: string;
+          capacity_limit: number | null;
+          organizer_user_id: string;
+          created_at: Date;
+          updated_at: Date;
+        }>
+      >`
+        SELECT id, title, description, location_name, starts_at, timezone, capacity_limit, organizer_user_id, created_at, updated_at
+        FROM events
+        WHERE id = ${eventId} AND organizer_user_id = ${currentUser.id}
+        FOR UPDATE
+      `;
+
+      const eventRow = eventRows[0];
+      if (!eventRow) {
+        throw new NotFoundException('Event not found');
+      }
+
+      const nextStartsAt = dto.startsAt ? new Date(dto.startsAt) : eventRow.starts_at;
+      const startsAtChanged = dto.startsAt !== undefined && nextStartsAt.getTime() !== eventRow.starts_at.getTime();
+      const hasCapacityLimitField = Object.prototype.hasOwnProperty.call(dto, 'capacityLimit');
+      const capacityChanged = hasCapacityLimitField && dto.capacityLimit !== eventRow.capacity_limit;
+
+      if (startsAtChanged) {
+        const existingReminders = await tx.eventReminder.findMany({
+          where: { eventId },
+          orderBy: [{ sendAt: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            offsetMinutes: true,
+          },
+        });
+
+        const reminderPlan = buildReminderPlan({
+          startsAt: nextStartsAt,
+          offsetsMinutes: existingReminders.map((reminder) => reminder.offsetMinutes),
+          now,
+        });
+
+        const sendAtByOffset = new Map(reminderPlan.map((reminder) => [reminder.offsetMinutes, reminder.sendAt]));
+        for (const reminder of existingReminders) {
+          const nextSendAt = sendAtByOffset.get(reminder.offsetMinutes);
+          if (!nextSendAt) {
+            throw new BadRequestException('Invalid reminder schedule update');
+          }
+
+          await tx.eventReminder.update({
+            where: { id: reminder.id },
+            data: { sendAt: nextSendAt },
+          });
+        }
+      }
+
+      if (capacityChanged) {
+        const attendees = await tx.eventAttendee.findMany({
+          where: { eventId },
+          select: {
+            id: true,
+            responseStatus: true,
+            waitlistPosition: true,
+            createdAt: true,
+          },
+        });
+
+        const goingAttendees = attendees.filter((attendee) => attendee.responseStatus === AttendeeResponseStatus.GOING);
+        const confirmedGoing = goingAttendees.filter((attendee) => attendee.waitlistPosition === null);
+
+        if (dto.capacityLimit !== null && dto.capacityLimit !== undefined && dto.capacityLimit < confirmedGoing.length) {
+          throw new BadRequestException('capacityLimit cannot be below confirmed going attendees');
+        }
+
+        const waitlistedGoing = goingAttendees
+          .filter((attendee) => attendee.waitlistPosition !== null)
+          .sort((left, right) => {
+            if ((left.waitlistPosition ?? 0) !== (right.waitlistPosition ?? 0)) {
+              return (left.waitlistPosition ?? 0) - (right.waitlistPosition ?? 0);
+            }
+            if (left.createdAt.getTime() !== right.createdAt.getTime()) {
+              return left.createdAt.getTime() - right.createdAt.getTime();
+            }
+            return left.id.localeCompare(right.id);
+          });
+
+        const confirmedIds = new Set<string>(confirmedGoing.map((attendee) => attendee.id));
+        if (dto.capacityLimit === null) {
+          for (const attendee of goingAttendees) {
+            confirmedIds.add(attendee.id);
+          }
+        } else if (dto.capacityLimit !== undefined) {
+          const seatsToFill = Math.max(dto.capacityLimit - confirmedGoing.length, 0);
+          for (let index = 0; index < seatsToFill && index < waitlistedGoing.length; index += 1) {
+            confirmedIds.add(waitlistedGoing[index]!.id);
+          }
+        }
+
+        const waitlistedIds = goingAttendees
+          .filter((attendee) => !confirmedIds.has(attendee.id))
+          .sort((left, right) => {
+            if ((left.waitlistPosition ?? 0) !== (right.waitlistPosition ?? 0)) {
+              return (left.waitlistPosition ?? 0) - (right.waitlistPosition ?? 0);
+            }
+            if (left.createdAt.getTime() !== right.createdAt.getTime()) {
+              return left.createdAt.getTime() - right.createdAt.getTime();
+            }
+            return left.id.localeCompare(right.id);
+          });
+
+        const nextWaitlistPositionById = new Map<string, number | null>();
+        for (const attendee of attendees) {
+          if (attendee.responseStatus !== AttendeeResponseStatus.GOING || confirmedIds.has(attendee.id)) {
+            nextWaitlistPositionById.set(attendee.id, null);
+          }
+        }
+        waitlistedIds.forEach((attendee, index) => {
+          nextWaitlistPositionById.set(attendee.id, index + 1);
+        });
+
+        for (const attendee of attendees) {
+          const nextWaitlistPosition = nextWaitlistPositionById.get(attendee.id) ?? null;
+          if (attendee.waitlistPosition !== nextWaitlistPosition) {
+            await tx.eventAttendee.update({
+              where: { id: attendee.id },
+              data: { waitlistPosition: nextWaitlistPosition },
+            });
+          }
+        }
+      }
+
+      const updateData: {
+        title?: string;
+        description?: string | null;
+        locationName?: string | null;
+        startsAt?: Date;
+        timezone?: string;
+        capacityLimit?: number | null;
+      } = {};
+
+      if (dto.title !== undefined) {
+        updateData.title = dto.title;
+      }
+      if (dto.description !== undefined) {
+        updateData.description = dto.description;
+      }
+      if (dto.location !== undefined) {
+        updateData.locationName = dto.location;
+      }
+      if (dto.startsAt !== undefined) {
+        updateData.startsAt = nextStartsAt;
+      }
+      if (dto.timezone !== undefined) {
+        updateData.timezone = dto.timezone;
+      }
+      if (hasCapacityLimitField) {
+        updateData.capacityLimit = dto.capacityLimit ?? null;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return tx.event.findUniqueOrThrow({ where: { id: eventId } });
+      }
+
+      return tx.event.update({
+        where: { id: eventId },
+        data: updateData,
+      });
+    });
+
+    return this.toResponse(updatedEvent);
   }
 
   async getAttendees(currentUser: AuthUser, eventId: string) {
