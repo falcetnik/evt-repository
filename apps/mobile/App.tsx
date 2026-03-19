@@ -15,10 +15,14 @@ import {
 } from 'react-native';
 import { createOrganizerEvent } from './src/api/create-event';
 import { loadMobileConfig } from './src/api/config';
-import { fetchOrganizerEventDetailsBundle } from './src/api/event-details';
+import {
+  fetchOrganizerEventDetailsBundle,
+  type OrganizerEventDetailsResponse,
+} from './src/api/event-details';
 import { replaceEventReminders } from './src/api/event-reminders';
 import { ApiClientError } from './src/api/http';
 import { createOrReuseInviteLink } from './src/api/invite-link';
+import { updateOrganizerEvent } from './src/api/update-event';
 import {
   getPublicInvite,
   submitPublicRsvp,
@@ -32,6 +36,11 @@ import {
   buildCreateEventPayloadFromForm,
   type CreateEventFormInput,
 } from './src/features/create-event/create-event-form-model';
+import {
+  buildEditEventInitialForm,
+  buildUpdateEventPayloadFromForm,
+  type EditEventFormInput,
+} from './src/features/edit-event/edit-event-form-model';
 import { mapEventDetailsToViewModel } from './src/features/event-details/event-details-model';
 import { mapInviteLinkToViewModel } from './src/features/event-details/invite-link-model';
 import { mapEventToCardModel } from './src/features/events-list/event-card-model';
@@ -51,12 +60,22 @@ const initialCreateForm: CreateEventFormInput = {
   timezone: '',
   capacityLimit: '',
 };
+const initialEditForm: EditEventFormInput = {
+  title: '',
+  description: '',
+  location: '',
+  startsAt: '',
+  timezone: '',
+  capacityLimit: '',
+};
 
 type PublicInviteOrigin = 'details-preview' | 'standalone-entry' | 'deep-link';
 
 export default function App() {
   const configResult = useMemo(() => loadMobileConfig(), []);
-  const [screen, setScreen] = useState<'list' | 'details' | 'create' | 'public-invite-entry' | 'public-invite'>('list');
+  const [screen, setScreen] = useState<
+    'list' | 'details' | 'create' | 'edit-event' | 'public-invite-entry' | 'public-invite'
+  >('list');
   const [scope, setScope] = useState<EventListScope>('upcoming');
   const [status, setStatus] = useState<LoadStatus>('idle');
   const [events, setEvents] = useState<ReturnType<typeof mapEventToCardModel>[]>([]);
@@ -65,9 +84,14 @@ export default function App() {
   const [detailsStatus, setDetailsStatus] = useState<LoadStatus>('idle');
   const [detailsErrorMessage, setDetailsErrorMessage] = useState<string | null>(null);
   const [eventDetails, setEventDetails] = useState<ReturnType<typeof mapEventDetailsToViewModel> | null>(null);
+  const [eventForEdit, setEventForEdit] = useState<OrganizerEventDetailsResponse | null>(null);
   const [createForm, setCreateForm] = useState<CreateEventFormInput>(initialCreateForm);
   const [createStatus, setCreateStatus] = useState<'idle' | 'submitting' | 'error'>('idle');
   const [createErrorMessage, setCreateErrorMessage] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<EditEventFormInput>(initialEditForm);
+  const [editFieldErrors, setEditFieldErrors] = useState<Partial<Record<keyof EditEventFormInput, string>>>({});
+  const [editStatus, setEditStatus] = useState<'idle' | 'submitting' | 'error'>('idle');
+  const [editErrorMessage, setEditErrorMessage] = useState<string | null>(null);
   const [inviteStatus, setInviteStatus] = useState<LoadStatus>('idle');
   const [inviteLink, setInviteLink] = useState<Awaited<ReturnType<typeof createOrReuseInviteLink>> | null>(null);
   const [inviteErrorMessage, setInviteErrorMessage] = useState<string | null>(null);
@@ -146,6 +170,7 @@ export default function App() {
       });
 
       setEventDetails(mapEventDetailsToViewModel(bundle));
+      setEventForEdit(bundle.event);
       setDetailsStatus('success');
     } catch (error) {
       if (error instanceof ApiClientError) {
@@ -175,6 +200,89 @@ export default function App() {
     },
     [],
   );
+
+  const updateEditFormField = useCallback(
+    (field: keyof EditEventFormInput, value: string) => {
+      setEditForm((prev) => ({ ...prev, [field]: value }));
+      setEditFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+    },
+    [],
+  );
+
+  const openEditEventScreen = useCallback(() => {
+    if (!eventForEdit) {
+      setEditErrorMessage('Event details are unavailable. Refresh details and try again.');
+      setEditStatus('error');
+      return;
+    }
+
+    setEditForm(buildEditEventInitialForm(eventForEdit));
+    setEditFieldErrors({});
+    setEditErrorMessage(null);
+    setEditStatus('idle');
+    setScreen('edit-event');
+  }, [eventForEdit]);
+
+  const cancelEditEvent = useCallback(() => {
+    setEditFieldErrors({});
+    setEditErrorMessage(null);
+    setEditStatus('idle');
+    setScreen('details');
+  }, []);
+
+  const submitEditEvent = useCallback(async () => {
+    if (!configResult.ok || !selectedEventId || editStatus === 'submitting') {
+      return;
+    }
+
+    const buildResult = buildUpdateEventPayloadFromForm(editForm);
+    if (!buildResult.ok) {
+      setEditFieldErrors(buildResult.fieldErrors);
+      setEditErrorMessage(buildResult.message);
+      setEditStatus('error');
+      return;
+    }
+
+    setEditStatus('submitting');
+    setEditFieldErrors({});
+    setEditErrorMessage(null);
+
+    try {
+      await updateOrganizerEvent({
+        baseUrl: configResult.value.apiBaseUrl,
+        eventId: selectedEventId,
+        payload: buildResult.payload,
+        devUserId: configResult.value.devUserId,
+        includeDevUserHeader: configResult.value.isDevelopment,
+      });
+
+      await loadEventDetails();
+      setEditStatus('idle');
+      setScreen('details');
+      void loadEvents();
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        if (error.kind === 'network') {
+          setEditErrorMessage('Could not save changes. Check network and try again.');
+        } else if (error.kind === 'http' && error.status === 400) {
+          setEditErrorMessage('Could not save event. Please verify your inputs and try again.');
+        } else if (error.kind === 'http' && error.status === 401) {
+          setEditErrorMessage('Could not save event. You are not authorized for this organizer account.');
+        } else if (error.kind === 'http' && error.status === 404) {
+          setEditErrorMessage('Could not save event. The event was not found.');
+        } else if (error.kind === 'http') {
+          setEditErrorMessage('Could not save event due to an API error. Please retry.');
+        } else if (error.kind === 'decode') {
+          setEditErrorMessage('Could not save event because the server response was invalid.');
+        } else {
+          setEditErrorMessage(error.message);
+        }
+      } else {
+        setEditErrorMessage('Unexpected failure while saving event changes.');
+      }
+      setEditStatus('error');
+    }
+  }, [configResult, editForm, editStatus, loadEventDetails, loadEvents, selectedEventId]);
 
   const submitCreateEvent = useCallback(async () => {
     if (!configResult.ok || createStatus === 'submitting') {
@@ -759,6 +867,9 @@ export default function App() {
               <Text style={styles.cardText}>{eventDetails.event.locationLabel}</Text>
               <Text style={styles.cardText}>{eventDetails.event.descriptionLabel}</Text>
               <Text style={styles.cardText}>{eventDetails.event.capacityLabel}</Text>
+              <Pressable onPress={openEditEventScreen} style={styles.refreshButton}>
+                <Text style={styles.refreshText}>Edit event</Text>
+              </Pressable>
             </View>
 
             <View style={styles.card}>
@@ -900,6 +1011,102 @@ export default function App() {
             </View>
           </ScrollView>
         ) : null}
+      </SafeAreaView>
+    );
+  }
+
+  if (screen === 'edit-event' && selectedEventId) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar style="auto" />
+        <Text style={styles.title}>Edit event</Text>
+        <Text style={styles.subtitle}>Update event fields and save changes.</Text>
+
+        <ScrollView contentContainerStyle={styles.formContent}>
+          <TextInput
+            value={editForm.title}
+            onChangeText={(value) => updateEditFormField('title', value)}
+            placeholder="Friday Board Games"
+            style={styles.input}
+            editable={editStatus !== 'submitting'}
+          />
+          {editFieldErrors.title ? <Text style={styles.errorText}>{editFieldErrors.title}</Text> : null}
+
+          <TextInput
+            value={editForm.description}
+            onChangeText={(value) => updateEditFormField('description', value)}
+            placeholder="Bring drinks if you want"
+            style={styles.input}
+            editable={editStatus !== 'submitting'}
+          />
+          {editFieldErrors.description ? <Text style={styles.errorText}>{editFieldErrors.description}</Text> : null}
+
+          <TextInput
+            value={editForm.location}
+            onChangeText={(value) => updateEditFormField('location', value)}
+            placeholder="Prospekt Mira 10"
+            style={styles.input}
+            editable={editStatus !== 'submitting'}
+          />
+          {editFieldErrors.location ? <Text style={styles.errorText}>{editFieldErrors.location}</Text> : null}
+
+          <TextInput
+            value={editForm.startsAt}
+            onChangeText={(value) => updateEditFormField('startsAt', value)}
+            placeholder="2026-03-25T19:30:00.000Z"
+            style={styles.input}
+            editable={editStatus !== 'submitting'}
+            autoCapitalize="none"
+          />
+          {editFieldErrors.startsAt ? <Text style={styles.errorText}>{editFieldErrors.startsAt}</Text> : null}
+
+          <TextInput
+            value={editForm.timezone}
+            onChangeText={(value) => updateEditFormField('timezone', value)}
+            placeholder="Europe/Moscow"
+            style={styles.input}
+            editable={editStatus !== 'submitting'}
+            autoCapitalize="none"
+          />
+          {editFieldErrors.timezone ? <Text style={styles.errorText}>{editFieldErrors.timezone}</Text> : null}
+
+          <TextInput
+            value={editForm.capacityLimit}
+            onChangeText={(value) => updateEditFormField('capacityLimit', value)}
+            placeholder="8"
+            style={styles.input}
+            editable={editStatus !== 'submitting'}
+            keyboardType="number-pad"
+          />
+          {editFieldErrors.capacityLimit ? <Text style={styles.errorText}>{editFieldErrors.capacityLimit}</Text> : null}
+
+          {editStatus === 'submitting' ? (
+            <View style={styles.centerState}>
+              <ActivityIndicator size="small" />
+              <Text style={styles.stateText}>Saving changes...</Text>
+            </View>
+          ) : null}
+
+          {editErrorMessage ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorTitle}>Could not save event</Text>
+              <Text style={styles.errorText}>{editErrorMessage}</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.createActions}>
+            <Pressable
+              onPress={() => void submitEditEvent()}
+              style={[styles.refreshButton, editStatus === 'submitting' && styles.disabledButton]}
+              disabled={editStatus === 'submitting'}
+            >
+              <Text style={styles.refreshText}>Save changes</Text>
+            </Pressable>
+            <Pressable onPress={cancelEditEvent} style={styles.cancelButton} disabled={editStatus === 'submitting'}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
