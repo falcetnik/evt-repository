@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -11,6 +11,7 @@ import {
   Text,
   TextInput,
   View,
+  Linking,
 } from 'react-native';
 import { createOrganizerEvent } from './src/api/create-event';
 import { loadMobileConfig } from './src/api/config';
@@ -34,6 +35,7 @@ import {
 import { mapEventDetailsToViewModel } from './src/features/event-details/event-details-model';
 import { mapInviteLinkToViewModel } from './src/features/event-details/invite-link-model';
 import { mapEventToCardModel } from './src/features/events-list/event-card-model';
+import { resolvePublicInviteOpenIntent } from './src/features/public-invite/deep-link-navigation-model';
 import { mapPublicInviteToViewModel } from './src/features/public-invite/public-invite-model';
 import { validateInviteTokenEntry } from './src/features/public-invite/invite-token-entry-model';
 import { buildPublicRsvpPayloadFromForm } from './src/features/public-invite/public-rsvp-form-model';
@@ -50,7 +52,7 @@ const initialCreateForm: CreateEventFormInput = {
   capacityLimit: '',
 };
 
-type PublicInviteOrigin = 'details-preview' | 'standalone-entry';
+type PublicInviteOrigin = 'details-preview' | 'standalone-entry' | 'deep-link';
 
 export default function App() {
   const configResult = useMemo(() => loadMobileConfig(), []);
@@ -97,6 +99,7 @@ export default function App() {
   const [publicRsvpErrorMessage, setPublicRsvpErrorMessage] = useState<string | null>(null);
   const [publicRsvpStatus, setPublicRsvpStatus] = useState<'idle' | 'submitting'>('idle');
   const [publicRsvpSuccess, setPublicRsvpSuccess] = useState<SubmitPublicRsvpResponse | null>(null);
+  const lastHandledIncomingUrlRef = useRef<string | null>(null);
 
   const loadEvents = useCallback(async () => {
     if (!configResult.ok) {
@@ -324,6 +327,64 @@ export default function App() {
     }
   }, [configResult, loadEventDetails, reminderInput, reminderSaveStatus, selectedEventId]);
 
+  const openPublicInvite = useCallback((token: string, origin: PublicInviteOrigin) => {
+    setPublicInviteToken(token);
+    setPublicInviteOrigin(origin);
+    setPublicInviteStatus('idle');
+    setPublicInviteErrorMessage(null);
+    setPublicInviteResponse(null);
+    setPublicRsvpInput({ guestName: '', guestEmail: '', status: '' });
+    setPublicRsvpFieldErrors({});
+    setPublicRsvpErrorMessage(null);
+    setPublicRsvpSuccess(null);
+    setScreen('public-invite');
+  }, []);
+
+  const handleIncomingUrl = useCallback((incomingUrl: string) => {
+    const trimmedUrl = incomingUrl.trim();
+
+    if (!trimmedUrl || lastHandledIncomingUrlRef.current === trimmedUrl) {
+      return;
+    }
+
+    lastHandledIncomingUrlRef.current = trimmedUrl;
+
+    const inviteIntent = resolvePublicInviteOpenIntent(trimmedUrl);
+
+    if (!inviteIntent) {
+      return;
+    }
+
+    openPublicInvite(inviteIntent.token, inviteIntent.origin);
+  }, [openPublicInvite]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const handleInitialUrl = async () => {
+      try {
+        const initialUrl = await Linking.getInitialURL();
+
+        if (isMounted && initialUrl) {
+          handleIncomingUrl(initialUrl);
+        }
+      } catch {
+        // ignore invalid initial deep links
+      }
+    };
+
+    void handleInitialUrl();
+
+    const subscription = Linking.addEventListener('url', (event) => {
+      handleIncomingUrl(event.url);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.remove();
+    };
+  }, [handleIncomingUrl]);
+
   const loadPublicInvite = useCallback(async () => {
     if (!configResult.ok || !publicInviteToken) {
       return;
@@ -409,16 +470,8 @@ export default function App() {
     }
 
     setInviteEntryErrorMessage(null);
-    setPublicInviteToken(result.token);
-    setPublicInviteOrigin('standalone-entry');
-    setPublicInviteStatus('idle');
-    setPublicInviteErrorMessage(null);
-    setPublicInviteResponse(null);
-    setPublicRsvpFieldErrors({});
-    setPublicRsvpErrorMessage(null);
-    setPublicRsvpSuccess(null);
-    setScreen('public-invite');
-  }, [inviteEntryInput]);
+    openPublicInvite(result.token, 'standalone-entry');
+  }, [inviteEntryInput, openPublicInvite]);
 
   if (!configResult.ok) {
     return (
@@ -440,11 +493,11 @@ export default function App() {
         <SafeAreaView style={styles.container}>
           <StatusBar style="auto" />
           <Pressable
-            onPress={() => setScreen(publicInviteOrigin === 'standalone-entry' ? 'public-invite-entry' : 'details')}
+            onPress={() => setScreen(publicInviteOrigin === 'details-preview' ? 'details' : 'public-invite-entry')}
             style={styles.backButton}
           >
             <Text style={styles.backButtonText}>
-              {publicInviteOrigin === 'standalone-entry' ? 'Back to open invite' : 'Back to event details'}
+              {publicInviteOrigin === 'details-preview' ? 'Back to event details' : 'Back to open invite'}
             </Text>
           </Pressable>
           <View style={styles.errorBox}>
@@ -461,11 +514,11 @@ export default function App() {
       <SafeAreaView style={styles.container}>
         <StatusBar style="auto" />
         <Pressable
-          onPress={() => setScreen(publicInviteOrigin === 'standalone-entry' ? 'public-invite-entry' : 'details')}
+          onPress={() => setScreen(publicInviteOrigin === 'details-preview' ? 'details' : 'public-invite-entry')}
           style={styles.backButton}
         >
           <Text style={styles.backButtonText}>
-            {publicInviteOrigin === 'standalone-entry' ? 'Back to open invite' : 'Back to event details'}
+            {publicInviteOrigin === 'details-preview' ? 'Back to event details' : 'Back to open invite'}
           </Text>
         </Pressable>
         <Pressable onPress={() => void loadPublicInvite()} style={styles.refreshButton}>
@@ -835,15 +888,7 @@ export default function App() {
                     </Pressable>
                     <Pressable
                       onPress={() => {
-                        setPublicInviteToken(inviteLink.token);
-                        setPublicInviteOrigin('details-preview');
-                        setPublicInviteStatus('idle');
-                        setPublicInviteErrorMessage(null);
-                        setPublicInviteResponse(null);
-                        setPublicRsvpFieldErrors({});
-                        setPublicRsvpErrorMessage(null);
-                        setPublicRsvpSuccess(null);
-                        setScreen('public-invite');
+                        openPublicInvite(inviteLink.token, 'details-preview');
                       }}
                       style={styles.backButton}
                     >
