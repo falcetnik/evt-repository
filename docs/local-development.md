@@ -298,3 +298,43 @@ Invoke-RestMethod -Method Get `
   -Uri 'http://localhost:3000/api/v1/events?scope=all' `
   -Headers @{ 'x-dev-user-id' = 'local-organizer-dev-user' }
 ```
+
+## EVT-9 mobile organizer home screen verification (PowerShell)
+1. Copy mobile env file and set Android emulator-safe backend URL:
+
+```powershell
+Copy-Item apps/mobile/.env.example apps/mobile/.env -Force
+```
+
+Use these values in `apps/mobile/.env`:
+
+```env
+EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:3000/api
+EXPO_PUBLIC_DEV_USER_ID=dev-organizer-1
+```
+
+`10.0.2.2` is required from Android Emulator to reach backend running on Windows host.
+
+2. Start Docker + backend:
+
+```powershell
+docker compose up -d
+pnpm --filter @event-app/api db:generate
+pnpm --filter @event-app/api db:migrate:deploy
+pnpm --filter @event-app/api db:seed:dev-user
+pnpm --filter @event-app/api start:dev
+```
+
+3. In a second terminal, run mobile checks and start Expo:
+
+```powershell
+pnpm --filter @event-app/mobile test
+pnpm --filter @event-app/mobile typecheck
+pnpm --filter @event-app/mobile start
+```
+
+4. In Android Studio, boot an Android Emulator and open the Expo app.
+5. Verify organizer events list loads on the single Home screen.
+6. Verify scope switching updates list for **Upcoming**, **Past**, and **All**.
+7. Stop backend temporarily and tap **Retry** in app; verify retryable error state appears.
+8. Start backend again and verify **Retry** loads the list successfully.
