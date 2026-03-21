@@ -127,3 +127,19 @@ model EventReminder {
   @@index([sendAt])
   @@map("event_reminders")
 }
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String   @map("actor_user_id")
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  requestId   String   @map("request_id")
+  metadataJson Json    @map("metadata_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([actorUserId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

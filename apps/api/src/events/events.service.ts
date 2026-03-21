@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AttendeeResponseStatus } from '@prisma/client';
 import { buildRsvpSummary, deriveAttendanceState, sortAttendeesForOrganizer } from '../attendance/attendance-summary';
+import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth-user.type';
 import { PrismaService } from '../database/prisma.service';
 import { toOrganizerInviteLinkResponse } from '../invite-links/invite-link-response';
@@ -11,7 +12,10 @@ import { UpdateEventDto } from './dto/update-event.dto';
 
 @Injectable()
 export class EventsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   async createEvent(currentUser: AuthUser, dto: CreateEventDto) {
     const event = await this.prisma.client.event.create({
@@ -23,6 +27,21 @@ export class EventsService {
         startsAt: new Date(dto.startsAt),
         timezone: dto.timezone,
         capacityLimit: dto.capacityLimit ?? null,
+      },
+    });
+
+    await this.auditService.logOrganizerAction({
+      actorUserId: currentUser.id,
+      action: 'event.created',
+      entityType: 'event',
+      entityId: event.id,
+      metadata: {
+        hasTitle: dto.title !== undefined,
+        hasDescription: dto.description !== undefined && dto.description !== null,
+        hasLocation: dto.location !== undefined && dto.location !== null,
+        hasStartsAt: dto.startsAt !== undefined,
+        hasTimezone: dto.timezone !== undefined,
+        hasCapacityLimit: dto.capacityLimit !== undefined,
       },
     });
 
@@ -276,6 +295,18 @@ export class EventsService {
       });
     });
 
+    await this.auditService.logOrganizerAction({
+      actorUserId: currentUser.id,
+      action: 'event.updated',
+      entityType: 'event',
+      entityId: updatedEvent.id,
+      metadata: {
+        changedFields: Object.keys(dto).sort(),
+        startsAtChanged: dto.startsAt !== undefined,
+        capacityLimitChanged: dto.capacityLimit !== undefined,
+      },
+    });
+
     return this.toResponse(updatedEvent);
   }
 
@@ -351,6 +382,16 @@ export class EventsService {
     });
 
     const reminders = await this.listEventReminders(event.id);
+    await this.auditService.logOrganizerAction({
+      actorUserId: currentUser.id,
+      action: 'event.reminders.replaced',
+      entityType: 'event',
+      entityId: event.id,
+      metadata: {
+        reminderCount: offsetsMinutes.length,
+        offsetsMinutes: [...offsetsMinutes].sort((a, b) => b - a),
+      },
+    });
 
     return this.toReminderScheduleResponse({
       eventId: event.id,
@@ -403,12 +444,27 @@ export class EventsService {
     const inviteLink = await this.findCurrentUsableInviteLink(eventId, now);
 
     if (!inviteLink) {
+      await this.auditService.logOrganizerAction({
+        actorUserId: currentUser.id,
+        action: 'event.invite_link.revoked',
+        entityType: 'event',
+        entityId: eventId,
+        metadata: { result: 'noop' },
+      });
       return;
     }
 
     await this.prisma.client.inviteLink.update({
       where: { token: inviteLink.token },
       data: { isActive: false },
+    });
+
+    await this.auditService.logOrganizerAction({
+      actorUserId: currentUser.id,
+      action: 'event.invite_link.revoked',
+      entityType: 'event',
+      entityId: eventId,
+      metadata: { result: 'revoked' },
     });
   }
 
