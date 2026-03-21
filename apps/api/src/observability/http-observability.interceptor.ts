@@ -1,6 +1,7 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Observable, catchError, finalize, tap, throwError } from 'rxjs';
 import { MetricsService } from './metrics.service';
+import { resolveHttpErrorStatusCode } from './http-error-status.util';
 
 @Injectable()
 export class HttpObservabilityInterceptor implements NestInterceptor {
@@ -25,20 +26,24 @@ export class HttpObservabilityInterceptor implements NestInterceptor {
     const method = request.method;
     const path = request.path;
     const route = this.resolveRoute(request);
+    let statusCodeForMetrics = response.statusCode;
 
     return next.handle().pipe(
       tap(() => {
+        statusCodeForMetrics = response.statusCode;
+
         this.logRequest({
           requestId: request.requestId ?? null,
           method,
           path,
-          statusCode: response.statusCode,
+          statusCode: statusCodeForMetrics,
           durationMs: this.durationMsSince(startedAt),
           userId: request.currentUser?.id ?? null,
         });
       }),
       catchError((error: unknown) => {
-        const statusCode = response.statusCode >= 400 ? response.statusCode : 500;
+        const statusCode = resolveHttpErrorStatusCode(error, response.statusCode);
+        statusCodeForMetrics = statusCode;
 
         console.error(
           JSON.stringify({
@@ -58,7 +63,7 @@ export class HttpObservabilityInterceptor implements NestInterceptor {
         this.metricsService.recordHttpRequest({
           method,
           route,
-          statusCode: response.statusCode,
+          statusCode: statusCodeForMetrics,
           durationMs: this.durationMsSince(startedAt),
         });
       }),
