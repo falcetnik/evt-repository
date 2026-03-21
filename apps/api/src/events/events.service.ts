@@ -3,6 +3,7 @@ import { AttendeeResponseStatus } from '@prisma/client';
 import { buildRsvpSummary, deriveAttendanceState, sortAttendeesForOrganizer } from '../attendance/attendance-summary';
 import type { AuthUser } from '../auth/auth-user.type';
 import { PrismaService } from '../database/prisma.service';
+import { toOrganizerInviteLinkResponse } from '../invite-links/invite-link-response';
 import { buildReminderPlan } from './reminders/reminder-schedule';
 import { CreateEventDto } from './dto/create-event.dto';
 import { EventListScope } from './dto/list-events.query.dto';
@@ -376,6 +377,39 @@ export class EventsService {
     });
   }
 
+  async getCurrentInviteLink(currentUser: AuthUser, eventId: string) {
+    await this.findOwnedEvent(currentUser, eventId, { id: true });
+
+    const now = new Date();
+    const inviteLink = await this.prisma.client.inviteLink.findFirst({
+      where: {
+        eventId,
+        isActive: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: {
+        eventId: true,
+        token: true,
+        isActive: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+    });
+
+    if (!inviteLink) {
+      return {
+        eventId,
+        inviteLink: null,
+      };
+    }
+
+    return {
+      eventId,
+      inviteLink: toOrganizerInviteLinkResponse(inviteLink, this.getInviteBaseUrl()),
+    };
+  }
+
 
   private buildScopeWhere(scope: EventListScope, now: Date) {
     if (scope === 'past') {
@@ -484,5 +518,12 @@ export class EventsService {
       return 'maybe';
     }
     return 'not_going';
+  }
+
+  private getInviteBaseUrl() {
+    const configuredBaseUrl = process.env.PUBLIC_INVITE_BASE_URL;
+    return configuredBaseUrl && configuredBaseUrl.trim().length > 0
+      ? configuredBaseUrl
+      : 'http://localhost:3000/api/v1/invite-links';
   }
 }
