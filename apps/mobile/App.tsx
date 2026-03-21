@@ -22,6 +22,7 @@ import {
 import { replaceEventReminders } from './src/api/event-reminders';
 import { ApiClientError } from './src/api/http';
 import { createOrReuseInviteLink } from './src/api/invite-link';
+import { getCurrentInviteLink } from './src/api/event-current-invite-link';
 import { updateOrganizerEvent } from './src/api/update-event';
 import {
   getPublicInvite,
@@ -42,6 +43,7 @@ import {
   type EditEventFormInput,
 } from './src/features/edit-event/edit-event-form-model';
 import { mapEventDetailsToViewModel } from './src/features/event-details/event-details-model';
+import { buildCurrentInviteLinkSectionState } from './src/features/event-details/current-invite-link-model';
 import { mapInviteLinkToViewModel } from './src/features/event-details/invite-link-model';
 import { mapEventToCardModel } from './src/features/events-list/event-card-model';
 import { resolvePublicInviteOpenIntent } from './src/features/public-invite/deep-link-navigation-model';
@@ -95,6 +97,8 @@ export default function App() {
   const [inviteStatus, setInviteStatus] = useState<LoadStatus>('idle');
   const [inviteLink, setInviteLink] = useState<Awaited<ReturnType<typeof createOrReuseInviteLink>> | null>(null);
   const [inviteErrorMessage, setInviteErrorMessage] = useState<string | null>(null);
+  const [currentInviteStatus, setCurrentInviteStatus] = useState<LoadStatus>('idle');
+  const [currentInviteErrorMessage, setCurrentInviteErrorMessage] = useState<string | null>(null);
   const [isReminderEditing, setIsReminderEditing] = useState(false);
   const [reminderInput, setReminderInput] = useState('');
   const [reminderErrorMessage, setReminderErrorMessage] = useState<string | null>(null);
@@ -182,6 +186,35 @@ export default function App() {
     }
   }, [configResult, selectedEventId]);
 
+  const loadCurrentInviteLink = useCallback(async () => {
+    if (!configResult.ok || !selectedEventId) {
+      return;
+    }
+
+    setCurrentInviteStatus('loading');
+    setCurrentInviteErrorMessage(null);
+
+    try {
+      const response = await getCurrentInviteLink({
+        baseUrl: configResult.value.apiBaseUrl,
+        eventId: selectedEventId,
+        devUserId: configResult.value.devUserId,
+        includeDevUserHeader: configResult.value.isDevelopment,
+      });
+
+      setInviteLink(response.inviteLink);
+      setCurrentInviteStatus('success');
+    } catch (error) {
+      setInviteLink(null);
+      if (error instanceof ApiClientError) {
+        setCurrentInviteErrorMessage(error.message);
+      } else {
+        setCurrentInviteErrorMessage('Could not load invite link.');
+      }
+      setCurrentInviteStatus('error');
+    }
+  }, [configResult, selectedEventId]);
+
   useEffect(() => {
     if (configResult.ok) {
       void loadEvents();
@@ -191,8 +224,9 @@ export default function App() {
   useEffect(() => {
     if (screen === 'details' && selectedEventId) {
       void loadEventDetails();
+      void loadCurrentInviteLink();
     }
-  }, [screen, selectedEventId, loadEventDetails]);
+  }, [screen, selectedEventId, loadEventDetails, loadCurrentInviteLink]);
 
   const updateCreateFormField = useCallback(
     (field: keyof CreateEventFormInput, value: string) => {
@@ -348,6 +382,8 @@ export default function App() {
       });
 
       setInviteLink(response);
+      setCurrentInviteStatus('success');
+      setCurrentInviteErrorMessage(null);
       setInviteStatus('success');
     } catch (error) {
       if (error instanceof ApiClientError) {
@@ -358,6 +394,10 @@ export default function App() {
       setInviteStatus('error');
     }
   }, [configResult, inviteStatus, selectedEventId]);
+
+  const refreshEventDetailsScreen = useCallback(async () => {
+    await Promise.all([loadEventDetails(), loadCurrentInviteLink()]);
+  }, [loadCurrentInviteLink, loadEventDetails]);
 
   const shareInviteLink = useCallback(async () => {
     if (!inviteLink) {
@@ -820,6 +860,8 @@ export default function App() {
             setInviteStatus('idle');
             setInviteErrorMessage(null);
             setInviteLink(null);
+            setCurrentInviteStatus('idle');
+            setCurrentInviteErrorMessage(null);
             cancelReminderEditing();
             setPublicInviteToken(null);
             setPublicInviteStatus('idle');
@@ -837,7 +879,7 @@ export default function App() {
           <Text style={styles.backButtonText}>Back to events</Text>
         </Pressable>
 
-        <Pressable onPress={() => void loadEventDetails()} style={styles.refreshButton}>
+        <Pressable onPress={() => void refreshEventDetailsScreen()} style={styles.refreshButton}>
           <Text style={styles.refreshText}>Refresh details</Text>
         </Pressable>
 
@@ -852,7 +894,7 @@ export default function App() {
           <View style={styles.errorBox}>
             <Text style={styles.errorTitle}>Could not load event details</Text>
             <Text style={styles.errorText}>{detailsErrorMessage ?? 'Backend may be unavailable.'}</Text>
-            <Pressable onPress={() => void loadEventDetails()} style={styles.retryButton}>
+            <Pressable onPress={() => void refreshEventDetailsScreen()} style={styles.retryButton}>
               <Text style={styles.retryText}>Retry</Text>
             </Pressable>
           </View>
@@ -956,28 +998,46 @@ export default function App() {
 
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Invite link</Text>
-              {inviteStatus === 'loading' ? (
+              {buildCurrentInviteLinkSectionState({
+                isLoading: currentInviteStatus === 'loading',
+                response: currentInviteStatus === 'success' ? { eventId: selectedEventId, inviteLink } : undefined,
+                errorMessage: currentInviteErrorMessage,
+              }).status === 'loading' ? (
                 <View style={styles.centerState}>
                   <ActivityIndicator size="small" />
-                  <Text style={styles.stateText}>Creating invite link...</Text>
+                  <Text style={styles.stateText}>Loading invite link...</Text>
                 </View>
               ) : null}
 
               {(() => {
+                const currentInviteSection = buildCurrentInviteLinkSectionState({
+                  isLoading: currentInviteStatus === 'loading',
+                  response: currentInviteStatus === 'success' ? { eventId: selectedEventId, inviteLink } : undefined,
+                  errorMessage: currentInviteErrorMessage,
+                });
                 const inviteView =
-                  inviteStatus === 'error' && !inviteLink
-                    ? mapInviteLinkToViewModel(null, inviteErrorMessage)
+                  currentInviteSection.status === 'error' && !inviteLink
+                    ? mapInviteLinkToViewModel(null, currentInviteSection.message)
                     : mapInviteLinkToViewModel(inviteLink);
 
                 return (
                   <View style={styles.inviteContent}>
-                    <Text style={styles.cardText}>{inviteView.stateLabel}</Text>
+                    {currentInviteSection.status === 'empty' ? (
+                      <Text style={styles.cardText}>{currentInviteSection.message}</Text>
+                    ) : (
+                      <Text style={styles.cardText}>{inviteView.stateLabel}</Text>
+                    )}
                     {inviteView.urlLabel ? <Text style={styles.cardText}>{inviteView.urlLabel}</Text> : null}
                     {inviteView.tokenLabel ? <Text style={styles.cardText}>{inviteView.tokenLabel}</Text> : null}
                     {inviteView.expiresAtLabel ? <Text style={styles.cardText}>{inviteView.expiresAtLabel}</Text> : null}
                     {inviteView.statusLabel ? <Text style={styles.cardText}>{inviteView.statusLabel}</Text> : null}
                     {inviteStatus !== 'error' && inviteErrorMessage ? (
                       <Text style={styles.errorText}>Share failed: {inviteErrorMessage}</Text>
+                    ) : null}
+                    {currentInviteSection.status === 'error' ? (
+                      <Pressable onPress={() => void loadCurrentInviteLink()} style={styles.retryButton}>
+                        <Text style={styles.retryText}>Retry invite link</Text>
+                      </Pressable>
                     ) : null}
                   </View>
                 );
