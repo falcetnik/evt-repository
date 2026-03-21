@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBody, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { AuthUser } from '../auth/auth-user.type';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -73,6 +73,16 @@ export class EventsController {
   @ApiResponse({ status: 404, description: 'Event not found' })
   getCurrentInviteLink(@CurrentUser() currentUser: AuthUser, @Param('eventId') eventId: string) {
     return this.eventsService.getCurrentInviteLink(currentUser, eventId);
+  }
+
+  @Delete(':eventId/invite-link')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Revoke current usable organizer invite link for event' })
+  @ApiResponse({ status: 204, description: 'Current usable invite link revoked (or no-op if none exists)' })
+  @ApiResponse({ status: 401, description: 'Unauthorized organizer' })
+  @ApiResponse({ status: 404, description: 'Event not found' })
+  async revokeCurrentInviteLink(@CurrentUser() currentUser: AuthUser, @Param('eventId') eventId: string) {
+    await this.eventsService.revokeCurrentInviteLink(currentUser, eventId);
   }
 
   @Put(':eventId/reminders')
