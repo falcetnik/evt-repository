@@ -5,6 +5,24 @@ import { Client } from 'pg';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 
+function futureUtcIso(base: Date, daysAhead: number, hour: number, minute = 0) {
+  const date = new Date(base);
+  date.setUTCSeconds(0, 0);
+  date.setUTCDate(date.getUTCDate() + daysAhead);
+  date.setUTCHours(hour, minute, 0, 0);
+  return date.toISOString();
+}
+
+function minusMinutes(iso: string, minutes: number) {
+  return new Date(new Date(iso).getTime() - minutes * 60_000).toISOString();
+}
+
+const BASE_NOW = new Date();
+const ORIGINAL_STARTS_AT = futureUtcIso(BASE_NOW, 7, 18, 0);
+const PATCHED_STARTS_AT = futureUtcIso(BASE_NOW, 7, 20, 0);
+const PATCHED_REMINDER_SEND_AT_120 = minusMinutes(PATCHED_STARTS_AT, 120);
+const PATCHED_REMINDER_SEND_AT_30 = minusMinutes(PATCHED_STARTS_AT, 30);
+
 describe('Events update API integration', () => {
   let app: INestApplication | null = null;
   let client: Client | null = null;
@@ -57,7 +75,7 @@ describe('Events update API integration', () => {
         title: 'Original Title',
         description: 'Original Description',
         location: 'Original Location',
-        startsAt: '2026-03-25T18:00:00.000Z',
+        startsAt: ORIGINAL_STARTS_AT,
         timezone: 'UTC',
         capacityLimit,
       })
@@ -139,7 +157,7 @@ describe('Events update API integration', () => {
     expect(response.body.title).toBe('Only Title Update');
     expect(response.body.description).toBe('Original Description');
     expect(response.body.location).toBe('Original Location');
-    expect(response.body.startsAt).toBe('2026-03-25T18:00:00.000Z');
+    expect(response.body.startsAt).toBe(ORIGINAL_STARTS_AT);
     expect(response.body.timezone).toBe('UTC');
     expect(response.body.capacityLimit).toBe(2);
   });
@@ -156,10 +174,10 @@ describe('Events update API integration', () => {
     const patchResponse = await request(app!.getHttpServer())
       .patch(`/api/v1/events/${eventId}`)
       .set('x-dev-user-id', 'organizer-1')
-      .send({ startsAt: '2026-03-25T20:00:00.000Z' })
+      .send({ startsAt: PATCHED_STARTS_AT })
       .expect(200);
 
-    expect(patchResponse.body.startsAt).toBe('2026-03-25T20:00:00.000Z');
+    expect(patchResponse.body.startsAt).toBe(PATCHED_STARTS_AT);
 
     const remindersResponse = await request(app!.getHttpServer())
       .get(`/api/v1/events/${eventId}/reminders`)
@@ -174,8 +192,8 @@ describe('Events update API integration', () => {
         }),
       ),
     ).toEqual([
-      { offsetMinutes: 120, sendAt: '2026-03-25T18:00:00.000Z' },
-      { offsetMinutes: 30, sendAt: '2026-03-25T19:30:00.000Z' },
+      { offsetMinutes: 120, sendAt: PATCHED_REMINDER_SEND_AT_120 },
+      { offsetMinutes: 30, sendAt: PATCHED_REMINDER_SEND_AT_30 },
     ]);
   });
 
