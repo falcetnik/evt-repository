@@ -66,6 +66,15 @@ export class EventsController {
     return this.eventsService.getAttendees(currentUser, eventId);
   }
 
+  @Get(':eventId/invite-link')
+  @ApiOperation({ summary: 'Get current usable organizer invite link for event' })
+  @ApiResponse({ status: 200, description: 'Current usable invite link or null loaded' })
+  @ApiResponse({ status: 401, description: 'Unauthorized organizer' })
+  @ApiResponse({ status: 404, description: 'Event not found' })
+  getCurrentInviteLink(@CurrentUser() currentUser: AuthUser, @Param('eventId') eventId: string) {
+    return this.eventsService.getCurrentInviteLink(currentUser, eventId);
+  }
+
   @Put(':eventId/reminders')
   @ApiOperation({ summary: 'Replace organizer reminder schedule for event' })
   @ApiBody({ type: ReplaceEventRemindersDto })

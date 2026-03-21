@@ -6,6 +6,7 @@ import type { AuthUser } from '../auth/auth-user.type';
 import { PrismaService } from '../database/prisma.service';
 import { SubmitRsvpDto } from './dto/submit-rsvp.dto';
 import { buildInviteUrl } from './invite-link-url';
+import { toOrganizerInviteLinkResponse } from './invite-link-response';
 
 @Injectable()
 export class InviteLinksService {
@@ -37,14 +38,14 @@ export class InviteLinksService {
     if (existingLink) {
       return {
         statusCode: 200,
-        payload: this.toOrganizerResponse(existingLink),
+        payload: toOrganizerInviteLinkResponse(existingLink, this.getInviteBaseUrl()),
       };
     }
 
     const createdLink = await this.createInviteLinkWithUniqueToken(eventId);
     return {
       statusCode: 201,
-      payload: this.toOrganizerResponse(createdLink),
+      payload: toOrganizerInviteLinkResponse(createdLink, this.getInviteBaseUrl()),
     };
   }
 
@@ -268,25 +269,6 @@ export class InviteLinksService {
     });
 
     return result;
-  }
-
-  private toOrganizerResponse(link: {
-    eventId: string;
-    token: string;
-    isActive: boolean;
-    expiresAt: Date | null;
-    createdAt: Date;
-  }) {
-    const inviteUrl = this.getInviteBaseUrl();
-
-    return {
-      eventId: link.eventId,
-      token: link.token,
-      url: buildInviteUrl(inviteUrl, link.token),
-      isActive: link.isActive,
-      expiresAt: link.expiresAt ? link.expiresAt.toISOString() : null,
-      createdAt: link.createdAt.toISOString(),
-    };
   }
 
   private async createInviteLinkWithUniqueToken(eventId: string) {
