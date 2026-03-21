@@ -43,6 +43,13 @@ import {
   type EditEventFormInput,
 } from './src/features/edit-event/edit-event-form-model';
 import { mapEventDetailsToViewModel } from './src/features/event-details/event-details-model';
+import {
+  ATTENDEE_FILTER_OPTIONS,
+  buildAttendeeFilterCounts,
+  filterAttendeesBySelection,
+  type AttendeeFilter,
+} from './src/features/event-details/attendee-filter-model';
+import { buildAttendeeStatusLabel } from './src/features/event-details/attendee-row-model';
 import { buildCurrentInviteLinkSectionState } from './src/features/event-details/current-invite-link-model';
 import { mapInviteLinkToViewModel } from './src/features/event-details/invite-link-model';
 import { mapEventToCardModel } from './src/features/events-list/event-card-model';
@@ -72,6 +79,13 @@ const initialEditForm: EditEventFormInput = {
 };
 
 type PublicInviteOrigin = 'details-preview' | 'standalone-entry' | 'deep-link';
+const attendeeFilterLabels: Record<AttendeeFilter, string> = {
+  all: 'All',
+  confirmed: 'Confirmed',
+  waitlisted: 'Waitlisted',
+  maybe: 'Maybe',
+  not_going: 'Not going',
+};
 
 export default function App() {
   const configResult = useMemo(() => loadMobileConfig(), []);
@@ -87,6 +101,7 @@ export default function App() {
   const [detailsErrorMessage, setDetailsErrorMessage] = useState<string | null>(null);
   const [eventDetails, setEventDetails] = useState<ReturnType<typeof mapEventDetailsToViewModel> | null>(null);
   const [eventForEdit, setEventForEdit] = useState<OrganizerEventDetailsResponse | null>(null);
+  const [selectedAttendeeFilter, setSelectedAttendeeFilter] = useState<AttendeeFilter>('all');
   const [createForm, setCreateForm] = useState<CreateEventFormInput>(initialCreateForm);
   const [createStatus, setCreateStatus] = useState<'idle' | 'submitting' | 'error'>('idle');
   const [createErrorMessage, setCreateErrorMessage] = useState<string | null>(null);
@@ -128,6 +143,14 @@ export default function App() {
   const [publicRsvpStatus, setPublicRsvpStatus] = useState<'idle' | 'submitting'>('idle');
   const [publicRsvpSuccess, setPublicRsvpSuccess] = useState<SubmitPublicRsvpResponse | null>(null);
   const lastHandledIncomingUrlRef = useRef<string | null>(null);
+  const attendeeFilterCounts = useMemo(
+    () => buildAttendeeFilterCounts(eventDetails?.attendees ?? []),
+    [eventDetails?.attendees],
+  );
+  const visibleAttendees = useMemo(
+    () => filterAttendeesBySelection(eventDetails?.attendees ?? [], selectedAttendeeFilter),
+    [eventDetails?.attendees, selectedAttendeeFilter],
+  );
 
   const loadEvents = useCallback(async () => {
     if (!configResult.ok) {
@@ -930,16 +953,62 @@ export default function App() {
               <Text style={styles.sectionTitle}>Attendees</Text>
               {eventDetails.attendees.length === 0 ? (
                 <Text style={styles.cardText}>{eventDetails.attendeesEmptyMessage}</Text>
-              ) : (
-                eventDetails.attendees.map((attendee) => (
-                  <View key={attendee.key} style={styles.subCard}>
-                    <Text style={styles.cardText}>{attendee.guestName}</Text>
-                    <Text style={styles.cardText}>{attendee.guestEmail}</Text>
-                    <Text style={styles.cardText}>{attendee.statusLabel}</Text>
-                    <Text style={styles.cardText}>{attendee.attendanceStateLabel}</Text>
-                    {attendee.waitlistLabel ? <Text style={styles.cardText}>{attendee.waitlistLabel}</Text> : null}
+              ) : visibleAttendees.length === 0 ? (
+                <>
+                  <View style={styles.filterRow}>
+                    {ATTENDEE_FILTER_OPTIONS.map((filterKey) => (
+                      <Pressable
+                        key={filterKey}
+                        onPress={() => setSelectedAttendeeFilter(filterKey)}
+                        style={[
+                          styles.filterButton,
+                          selectedAttendeeFilter === filterKey && styles.filterButtonActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.filterButtonText,
+                            selectedAttendeeFilter === filterKey && styles.filterButtonTextActive,
+                          ]}
+                        >
+                          {attendeeFilterLabels[filterKey]} ({attendeeFilterCounts[filterKey]})
+                        </Text>
+                      </Pressable>
+                    ))}
                   </View>
-                ))
+                  <Text style={styles.cardText}>No attendees in this filter.</Text>
+                </>
+              ) : (
+                <>
+                  <View style={styles.filterRow}>
+                    {ATTENDEE_FILTER_OPTIONS.map((filterKey) => (
+                      <Pressable
+                        key={filterKey}
+                        onPress={() => setSelectedAttendeeFilter(filterKey)}
+                        style={[
+                          styles.filterButton,
+                          selectedAttendeeFilter === filterKey && styles.filterButtonActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.filterButtonText,
+                            selectedAttendeeFilter === filterKey && styles.filterButtonTextActive,
+                          ]}
+                        >
+                          {attendeeFilterLabels[filterKey]} ({attendeeFilterCounts[filterKey]})
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  {visibleAttendees.map((attendee) => (
+                    <View key={attendee.key} style={styles.subCard}>
+                      <Text style={styles.cardText}>{attendee.guestName}</Text>
+                      <Text style={styles.cardText}>{attendee.guestEmail}</Text>
+                      <Text style={styles.cardText}>{buildAttendeeStatusLabel(attendee)}</Text>
+                    </View>
+                  ))}
+                </>
               )}
             </View>
 
@@ -1344,6 +1413,7 @@ export default function App() {
                 setSelectedEventId(item.id);
                 setDetailsStatus('idle');
                 setDetailsErrorMessage(null);
+                setSelectedAttendeeFilter('all');
                 setEventDetails(null);
                 setInviteStatus('idle');
                 setInviteErrorMessage(null);
@@ -1411,6 +1481,30 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   scopeButtonTextActive: {
+    color: '#ffffff',
+  },
+  filterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  filterButton: {
+    backgroundColor: '#e5e7eb',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  filterButtonActive: {
+    backgroundColor: '#2563eb',
+  },
+  filterButtonText: {
+    color: '#111827',
+    fontWeight: '500',
+    fontSize: 12,
+  },
+  filterButtonTextActive: {
     color: '#ffffff',
   },
   refreshButton: {

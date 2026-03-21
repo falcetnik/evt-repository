@@ -76,9 +76,9 @@ describe('event details model mapper', () => {
     expect(model.summary.goingLabel).toBe('Going: 2');
     expect(model.summary.waitlistedGoingLabel).toBe('Waitlisted going: 1');
     expect(model.summary.isFullLabel).toBe('Full: Yes');
-    expect(model.attendees[0].statusLabel).toBe('Status: Going');
-    expect(model.attendees[1].attendanceStateLabel).toBe('Attendance: Waitlisted');
-    expect(model.attendees[1].waitlistLabel).toBe('Waitlist position: 2');
+    expect(model.attendees[0].status).toBe('going');
+    expect(model.attendees[1].attendanceState).toBe('waitlisted');
+    expect(model.attendees[1].waitlistPosition).toBe(2);
     expect(model.reminders[0].offsetLabel).toBe('Offset: 60 min before');
     expect(model.reminders[0].sendAtLabel).toBe('Sends at: 2099-01-01T09:00:00Z');
   });
