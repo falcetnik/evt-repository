@@ -1,4 +1,5 @@
 import type { OrganizerEventDetailsBundle } from '../../api/event-details';
+import type { AttendeeListItem } from './attendee-row-model';
 
 export type EventDetailsViewModel = {
   event: {
@@ -19,14 +20,7 @@ export type EventDetailsViewModel = {
     remainingSpotsLabel: string;
     isFullLabel: string;
   };
-  attendees: Array<{
-    key: string;
-    guestName: string;
-    guestEmail: string;
-    statusLabel: string;
-    attendanceStateLabel: string;
-    waitlistLabel: string | null;
-  }>;
+  attendees: AttendeeListItem[];
   attendeesEmptyMessage: string | null;
   reminders: Array<{
     key: string;
@@ -42,39 +36,14 @@ const toIsoLabel = (value: string) => {
   return Number.isNaN(date.getTime()) ? value : date.toISOString().replace('.000Z', 'Z');
 };
 
-const toStatusLabel = (status: 'going' | 'maybe' | 'not_going') => {
-  if (status === 'going') {
-    return 'Status: Going';
-  }
-
-  if (status === 'maybe') {
-    return 'Status: Maybe';
-  }
-
-  return 'Status: Not going';
-};
-
-const toAttendanceLabel = (state: 'confirmed' | 'waitlisted' | 'not_attending') => {
-  if (state === 'confirmed') {
-    return 'Attendance: Confirmed';
-  }
-
-  if (state === 'waitlisted') {
-    return 'Attendance: Waitlisted';
-  }
-
-  return 'Attendance: Not attending';
-};
-
 export const mapEventDetailsToViewModel = (bundle: OrganizerEventDetailsBundle): EventDetailsViewModel => {
   const attendees = bundle.attendees.attendees.map((attendee) => ({
     key: attendee.attendeeId,
     guestName: attendee.guestName,
     guestEmail: attendee.guestEmail,
-    statusLabel: toStatusLabel(attendee.status),
-    attendanceStateLabel: toAttendanceLabel(attendee.attendanceState),
-    waitlistLabel:
-      attendee.waitlistPosition === null ? null : `Waitlist position: ${attendee.waitlistPosition}`,
+    status: attendee.status,
+    attendanceState: attendee.attendanceState,
+    waitlistPosition: attendee.waitlistPosition,
   }));
 
   const reminders = bundle.reminders.reminders.map((reminder) => ({
