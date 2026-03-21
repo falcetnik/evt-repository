@@ -381,7 +381,39 @@ export class EventsService {
     await this.findOwnedEvent(currentUser, eventId, { id: true });
 
     const now = new Date();
-    const inviteLink = await this.prisma.client.inviteLink.findFirst({
+    const inviteLink = await this.findCurrentUsableInviteLink(eventId, now);
+
+    if (!inviteLink) {
+      return {
+        eventId,
+        inviteLink: null,
+      };
+    }
+
+    return {
+      eventId,
+      inviteLink: toOrganizerInviteLinkResponse(inviteLink, this.getInviteBaseUrl()),
+    };
+  }
+
+  async revokeCurrentInviteLink(currentUser: AuthUser, eventId: string) {
+    await this.findOwnedEvent(currentUser, eventId, { id: true });
+
+    const now = new Date();
+    const inviteLink = await this.findCurrentUsableInviteLink(eventId, now);
+
+    if (!inviteLink) {
+      return;
+    }
+
+    await this.prisma.client.inviteLink.update({
+      where: { token: inviteLink.token },
+      data: { isActive: false },
+    });
+  }
+
+  private async findCurrentUsableInviteLink(eventId: string, now: Date) {
+    return this.prisma.client.inviteLink.findFirst({
       where: {
         eventId,
         isActive: true,
@@ -396,18 +428,6 @@ export class EventsService {
         createdAt: true,
       },
     });
-
-    if (!inviteLink) {
-      return {
-        eventId,
-        inviteLink: null,
-      };
-    }
-
-    return {
-      eventId,
-      inviteLink: toOrganizerInviteLinkResponse(inviteLink, this.getInviteBaseUrl()),
-    };
   }
 
 
