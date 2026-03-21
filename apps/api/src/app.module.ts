@@ -1,12 +1,14 @@
 import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_PIPE } from '@nestjs/core';
 import { AppController } from './app.controller';
+import { AuditModule } from './audit/audit.module';
 import { PrismaModule } from './database/prisma.module';
 import { EventsModule } from './events/events.module';
 import { InviteLinksModule } from './invite-links/invite-links.module';
+import { ObservabilityModule } from './observability/observability.module';
 
 @Module({
-  imports: [PrismaModule, EventsModule, InviteLinksModule],
+  imports: [PrismaModule, AuditModule, ObservabilityModule, EventsModule, InviteLinksModule],
   controllers: [AppController],
   providers: [
     {

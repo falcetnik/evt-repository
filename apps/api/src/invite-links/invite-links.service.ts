@@ -2,6 +2,7 @@ import { AttendeeResponseStatus } from '@prisma/client';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { buildRsvpSummary, deriveAttendanceState } from '../attendance/attendance-summary';
+import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth-user.type';
 import { PrismaService } from '../database/prisma.service';
 import { SubmitRsvpDto } from './dto/submit-rsvp.dto';
@@ -10,7 +11,10 @@ import { toOrganizerInviteLinkResponse } from './invite-link-response';
 
 @Injectable()
 export class InviteLinksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   async createOrGetInviteLink(currentUser: AuthUser, eventId: string) {
     const event = await this.prisma.client.event.findFirst({
@@ -36,6 +40,14 @@ export class InviteLinksService {
     });
 
     if (existingLink) {
+      await this.auditService.logOrganizerAction({
+        actorUserId: currentUser.id,
+        action: 'event.invite_link.upserted',
+        entityType: 'event',
+        entityId: eventId,
+        metadata: { result: 'reused' },
+      });
+
       return {
         statusCode: 200,
         payload: toOrganizerInviteLinkResponse(existingLink, this.getInviteBaseUrl()),
@@ -43,6 +55,14 @@ export class InviteLinksService {
     }
 
     const createdLink = await this.createInviteLinkWithUniqueToken(eventId);
+    await this.auditService.logOrganizerAction({
+      actorUserId: currentUser.id,
+      action: 'event.invite_link.upserted',
+      entityType: 'event',
+      entityId: eventId,
+      metadata: { result: 'created' },
+    });
+
     return {
       statusCode: 201,
       payload: toOrganizerInviteLinkResponse(createdLink, this.getInviteBaseUrl()),
