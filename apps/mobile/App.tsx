@@ -23,6 +23,7 @@ import { replaceEventReminders } from './src/api/event-reminders';
 import { ApiClientError } from './src/api/http';
 import { createOrReuseInviteLink } from './src/api/invite-link';
 import { getCurrentInviteLink } from './src/api/event-current-invite-link';
+import { revokeCurrentInviteLink } from './src/api/revoke-invite-link';
 import { updateOrganizerEvent } from './src/api/update-event';
 import {
   getPublicInvite,
@@ -51,6 +52,7 @@ import {
 } from './src/features/event-details/attendee-filter-model';
 import { buildAttendeeStatusLabel } from './src/features/event-details/attendee-row-model';
 import { buildCurrentInviteLinkSectionState } from './src/features/event-details/current-invite-link-model';
+import { buildRevokeInviteLinkUiState, type RevokeInviteLinkUiStatus } from './src/features/event-details/revoke-invite-link-model';
 import { mapInviteLinkToViewModel } from './src/features/event-details/invite-link-model';
 import { mapEventToCardModel } from './src/features/events-list/event-card-model';
 import { resolvePublicInviteOpenIntent } from './src/features/public-invite/deep-link-navigation-model';
@@ -114,6 +116,8 @@ export default function App() {
   const [inviteErrorMessage, setInviteErrorMessage] = useState<string | null>(null);
   const [currentInviteStatus, setCurrentInviteStatus] = useState<LoadStatus>('idle');
   const [currentInviteErrorMessage, setCurrentInviteErrorMessage] = useState<string | null>(null);
+  const [revokeInviteStatus, setRevokeInviteStatus] = useState<RevokeInviteLinkUiStatus>('idle');
+  const [revokeInviteErrorMessage, setRevokeInviteErrorMessage] = useState<string | null>(null);
   const [isReminderEditing, setIsReminderEditing] = useState(false);
   const [reminderInput, setReminderInput] = useState('');
   const [reminderErrorMessage, setReminderErrorMessage] = useState<string | null>(null);
@@ -227,8 +231,12 @@ export default function App() {
 
       setInviteLink(response.inviteLink);
       setCurrentInviteStatus('success');
+      setRevokeInviteStatus('idle');
+      setRevokeInviteErrorMessage(null);
     } catch (error) {
       setInviteLink(null);
+      setRevokeInviteStatus('idle');
+      setRevokeInviteErrorMessage(null);
       if (error instanceof ApiClientError) {
         setCurrentInviteErrorMessage(error.message);
       } else {
@@ -407,6 +415,8 @@ export default function App() {
       setInviteLink(response);
       setCurrentInviteStatus('success');
       setCurrentInviteErrorMessage(null);
+      setRevokeInviteStatus('idle');
+      setRevokeInviteErrorMessage(null);
       setInviteStatus('success');
     } catch (error) {
       if (error instanceof ApiClientError) {
@@ -421,6 +431,48 @@ export default function App() {
   const refreshEventDetailsScreen = useCallback(async () => {
     await Promise.all([loadEventDetails(), loadCurrentInviteLink()]);
   }, [loadCurrentInviteLink, loadEventDetails]);
+
+  const openRevokeInviteConfirmation = useCallback(() => {
+    if (!inviteLink || revokeInviteStatus === 'loading') {
+      return;
+    }
+
+    setRevokeInviteStatus('confirm');
+    setRevokeInviteErrorMessage(null);
+  }, [inviteLink, revokeInviteStatus]);
+
+  const cancelRevokeInvite = useCallback(() => {
+    if (revokeInviteStatus === 'loading') {
+      return;
+    }
+
+    setRevokeInviteStatus('idle');
+    setRevokeInviteErrorMessage(null);
+  }, [revokeInviteStatus]);
+
+  const confirmRevokeInvite = useCallback(async () => {
+    if (!configResult.ok || !selectedEventId || !inviteLink || revokeInviteStatus === 'loading') {
+      return;
+    }
+
+    setRevokeInviteStatus('loading');
+    setRevokeInviteErrorMessage(null);
+
+    try {
+      await revokeCurrentInviteLink({
+        baseUrl: configResult.value.apiBaseUrl,
+        eventId: selectedEventId,
+        devUserId: configResult.value.devUserId,
+        includeDevUserHeader: configResult.value.isDevelopment,
+      });
+      await loadCurrentInviteLink();
+      setRevokeInviteStatus('idle');
+      setRevokeInviteErrorMessage(null);
+    } catch {
+      setRevokeInviteStatus('error');
+      setRevokeInviteErrorMessage('Could not deactivate invite link.');
+    }
+  }, [configResult, inviteLink, loadCurrentInviteLink, revokeInviteStatus, selectedEventId]);
 
   const shareInviteLink = useCallback(async () => {
     if (!inviteLink) {
@@ -1088,6 +1140,10 @@ export default function App() {
                   currentInviteSection.status === 'error' && !inviteLink
                     ? mapInviteLinkToViewModel(null, currentInviteSection.message)
                     : mapInviteLinkToViewModel(inviteLink);
+                const revokeUiState = buildRevokeInviteLinkUiState({
+                  status: revokeInviteStatus,
+                  errorMessage: revokeInviteErrorMessage,
+                });
 
                 return (
                   <View style={styles.inviteContent}>
@@ -1107,6 +1163,40 @@ export default function App() {
                       <Pressable onPress={() => void loadCurrentInviteLink()} style={styles.retryButton}>
                         <Text style={styles.retryText}>Retry invite link</Text>
                       </Pressable>
+                    ) : null}
+                    {currentInviteSection.status === 'success' && inviteLink ? (
+                      <>
+                        <Pressable
+                          onPress={openRevokeInviteConfirmation}
+                          style={[styles.cancelButton, revokeUiState.isSubmitting && styles.disabledButton]}
+                          disabled={revokeUiState.isSubmitting}
+                        >
+                          <Text style={styles.cancelText}>{revokeUiState.actionLabel}</Text>
+                        </Pressable>
+                        {revokeUiState.confirmVisible ? (
+                          <View style={styles.subCard}>
+                            <Text style={styles.cardText}>{revokeUiState.confirmPrompt}</Text>
+                            <Text style={styles.cardText}>{revokeUiState.confirmWarning}</Text>
+                            <View style={styles.createActions}>
+                              <Pressable
+                                onPress={() => void confirmRevokeInvite()}
+                                style={[styles.refreshButton, revokeUiState.isConfirmDisabled && styles.disabledButton]}
+                                disabled={revokeUiState.isConfirmDisabled}
+                              >
+                                <Text style={styles.refreshText}>{revokeUiState.confirmActionLabel}</Text>
+                              </Pressable>
+                              <Pressable
+                                onPress={cancelRevokeInvite}
+                                style={styles.cancelButton}
+                                disabled={revokeUiState.isCancelDisabled}
+                              >
+                                <Text style={styles.cancelText}>{revokeUiState.cancelLabel}</Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                        ) : null}
+                        {revokeUiState.errorMessage ? <Text style={styles.errorText}>{revokeUiState.errorMessage}</Text> : null}
+                      </>
                     ) : null}
                   </View>
                 );
