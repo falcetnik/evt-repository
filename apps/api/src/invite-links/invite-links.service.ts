@@ -282,6 +282,20 @@ export class InviteLinksService {
         where: { id: currentAttendee.id },
       });
 
+      await this.auditService.logAction({
+        tx,
+        actorUserId: null,
+        action: isCreate ? 'event.rsvp.created' : 'event.rsvp.updated',
+        entityType: 'event',
+        entityId: link.eventId,
+        metadata: {
+          attendeeId: finalAttendee.id,
+          status: this.toApiStatus(finalAttendee.responseStatus),
+          attendanceState: deriveAttendanceState(finalAttendee.responseStatus, finalAttendee.waitlistPosition),
+          waitlistPosition: finalAttendee.waitlistPosition,
+        },
+      });
+
       return {
         statusCode: isCreate ? 201 : 200,
         payload: this.toAttendeeResponse(finalAttendee),

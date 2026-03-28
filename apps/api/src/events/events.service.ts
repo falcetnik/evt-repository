@@ -195,13 +195,16 @@ export class EventsService {
 
         const goingAttendees = attendees.filter((attendee) => attendee.responseStatus === AttendeeResponseStatus.GOING);
         const confirmedGoing = goingAttendees.filter((attendee) => attendee.waitlistPosition === null);
+        const waitlistedGoingBefore = goingAttendees.filter((attendee) => attendee.waitlistPosition !== null);
+        const waitlistedBeforeIds = new Set(waitlistedGoingBefore.map((attendee) => attendee.id));
+        const confirmedGoingBeforeCount = confirmedGoing.length;
+        const waitlistedGoingBeforeCount = waitlistedGoingBefore.length;
 
         if (dto.capacityLimit !== null && dto.capacityLimit !== undefined && dto.capacityLimit < confirmedGoing.length) {
           throw new BadRequestException('capacityLimit cannot be below confirmed going attendees');
         }
 
-        const waitlistedGoing = goingAttendees
-          .filter((attendee) => attendee.waitlistPosition !== null)
+        const waitlistedGoing = waitlistedGoingBefore
           .sort((left, right) => {
             if ((left.waitlistPosition ?? 0) !== (right.waitlistPosition ?? 0)) {
               return (left.waitlistPosition ?? 0) - (right.waitlistPosition ?? 0);
@@ -254,6 +257,42 @@ export class EventsService {
               data: { waitlistPosition: nextWaitlistPosition },
             });
           }
+        }
+
+        const confirmedGoingAfterCount = goingAttendees.filter((attendee) => {
+          const waitlistPosition = nextWaitlistPositionById.get(attendee.id) ?? null;
+          return waitlistPosition === null;
+        }).length;
+        const waitlistedGoingAfterCount = goingAttendees.length - confirmedGoingAfterCount;
+        const promotedCount = goingAttendees.filter((attendee) => {
+          if (!waitlistedBeforeIds.has(attendee.id)) {
+            return false;
+          }
+          const waitlistPosition = nextWaitlistPositionById.get(attendee.id) ?? null;
+          return waitlistPosition === null;
+        }).length;
+        const placementChanged = attendees.some((attendee) => {
+          const nextWaitlistPosition = nextWaitlistPositionById.get(attendee.id) ?? null;
+          return attendee.waitlistPosition !== nextWaitlistPosition;
+        });
+
+        if (placementChanged) {
+          await this.auditService.logAction({
+            tx,
+            actorUserId: currentUser.id,
+            action: 'event.attendance.rebalanced',
+            entityType: 'event',
+            entityId: eventId,
+            metadata: {
+              capacityBefore: eventRow.capacity_limit,
+              capacityAfter: dto.capacityLimit,
+              confirmedGoingBefore: confirmedGoingBeforeCount,
+              confirmedGoingAfter: confirmedGoingAfterCount,
+              waitlistedGoingBefore: waitlistedGoingBeforeCount,
+              waitlistedGoingAfter: waitlistedGoingAfterCount,
+              promotedCount,
+            },
+          });
         }
       }
 
