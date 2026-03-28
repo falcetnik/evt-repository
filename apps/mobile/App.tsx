@@ -14,6 +14,7 @@ import {
   Linking,
 } from 'react-native';
 import { createOrganizerEvent } from './src/api/create-event';
+import { deleteOrganizerEvent } from './src/api/delete-event';
 import { loadMobileConfig } from './src/api/config';
 import {
   fetchOrganizerEventDetailsBundle,
@@ -44,6 +45,7 @@ import {
   type EditEventFormInput,
 } from './src/features/edit-event/edit-event-form-model';
 import { mapEventDetailsToViewModel } from './src/features/event-details/event-details-model';
+import { buildDeleteEventUiState, type DeleteEventUiStatus } from './src/features/event-details/delete-event-model';
 import {
   ATTENDEE_FILTER_OPTIONS,
   buildAttendeeFilterCounts,
@@ -116,6 +118,8 @@ export default function App() {
   const [inviteErrorMessage, setInviteErrorMessage] = useState<string | null>(null);
   const [currentInviteStatus, setCurrentInviteStatus] = useState<LoadStatus>('idle');
   const [currentInviteErrorMessage, setCurrentInviteErrorMessage] = useState<string | null>(null);
+  const [deleteEventStatus, setDeleteEventStatus] = useState<DeleteEventUiStatus>('idle');
+  const [deleteEventErrorMessage, setDeleteEventErrorMessage] = useState<string | null>(null);
   const [revokeInviteStatus, setRevokeInviteStatus] = useState<RevokeInviteLinkUiStatus>('idle');
   const [revokeInviteErrorMessage, setRevokeInviteErrorMessage] = useState<string | null>(null);
   const [isReminderEditing, setIsReminderEditing] = useState(false);
@@ -154,6 +158,14 @@ export default function App() {
   const visibleAttendees = useMemo(
     () => filterAttendeesBySelection(eventDetails?.attendees ?? [], selectedAttendeeFilter),
     [eventDetails?.attendees, selectedAttendeeFilter],
+  );
+  const deleteEventUiState = useMemo(
+    () =>
+      buildDeleteEventUiState({
+        status: deleteEventStatus,
+        errorMessage: deleteEventErrorMessage,
+      }),
+    [deleteEventErrorMessage, deleteEventStatus],
   );
 
   const loadEvents = useCallback(async () => {
@@ -473,6 +485,92 @@ export default function App() {
       setRevokeInviteErrorMessage('Could not deactivate invite link.');
     }
   }, [configResult, inviteLink, loadCurrentInviteLink, revokeInviteStatus, selectedEventId]);
+
+  const openDeleteEventConfirmation = useCallback(() => {
+    if (deleteEventStatus === 'loading') {
+      return;
+    }
+
+    setDeleteEventStatus('confirm');
+    setDeleteEventErrorMessage(null);
+  }, [deleteEventStatus]);
+
+  const cancelDeleteEvent = useCallback(() => {
+    if (deleteEventStatus === 'loading') {
+      return;
+    }
+
+    setDeleteEventStatus('idle');
+    setDeleteEventErrorMessage(null);
+  }, [deleteEventStatus]);
+
+  const resetDetailsTransientState = useCallback(() => {
+    setInviteStatus('idle');
+    setInviteErrorMessage(null);
+    setInviteLink(null);
+    setCurrentInviteStatus('idle');
+    setCurrentInviteErrorMessage(null);
+    setDeleteEventStatus('idle');
+    setDeleteEventErrorMessage(null);
+    setRevokeInviteStatus('idle');
+    setRevokeInviteErrorMessage(null);
+    setSelectedAttendeeFilter('all');
+    setIsReminderEditing(false);
+    setReminderInput('');
+    setReminderErrorMessage(null);
+    setReminderSaveStatus('idle');
+    setPublicInviteToken(null);
+    setPublicInviteStatus('idle');
+    setPublicInviteErrorMessage(null);
+    setPublicInviteResponse(null);
+    setPublicRsvpInput({ guestName: '', guestEmail: '', status: '' });
+    setPublicRsvpFieldErrors({});
+    setPublicRsvpErrorMessage(null);
+    setPublicRsvpStatus('idle');
+    setPublicRsvpSuccess(null);
+  }, []);
+
+  const confirmDeleteEvent = useCallback(async () => {
+    if (!configResult.ok || !selectedEventId || deleteEventStatus === 'loading') {
+      return;
+    }
+
+    setDeleteEventStatus('loading');
+    setDeleteEventErrorMessage(null);
+
+    try {
+      await deleteOrganizerEvent({
+        baseUrl: configResult.value.apiBaseUrl,
+        eventId: selectedEventId,
+        devUserId: configResult.value.devUserId,
+        includeDevUserHeader: configResult.value.isDevelopment,
+      });
+
+      setScreen('list');
+      setSelectedEventId(null);
+      setDetailsStatus('idle');
+      setDetailsErrorMessage(null);
+      setEventDetails(null);
+      setEventForEdit(null);
+      resetDetailsTransientState();
+      await loadEvents();
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        if (error.kind === 'network') {
+          setDeleteEventErrorMessage('Could not delete event. Check network and try again.');
+        } else if (error.kind === 'http' && error.status === 401) {
+          setDeleteEventErrorMessage('Could not delete event. You are not authorized for this organizer account.');
+        } else if (error.kind === 'http' && error.status === 404) {
+          setDeleteEventErrorMessage('Could not delete event. The event was not found.');
+        } else {
+          setDeleteEventErrorMessage('Could not delete event.');
+        }
+      } else {
+        setDeleteEventErrorMessage('Could not delete event.');
+      }
+      setDeleteEventStatus('error');
+    }
+  }, [configResult, deleteEventStatus, loadEvents, resetDetailsTransientState, selectedEventId]);
 
   const shareInviteLink = useCallback(async () => {
     if (!inviteLink) {
@@ -932,21 +1030,7 @@ export default function App() {
           onPress={() => {
             setScreen('list');
             setSelectedEventId(null);
-            setInviteStatus('idle');
-            setInviteErrorMessage(null);
-            setInviteLink(null);
-            setCurrentInviteStatus('idle');
-            setCurrentInviteErrorMessage(null);
-            cancelReminderEditing();
-            setPublicInviteToken(null);
-            setPublicInviteStatus('idle');
-            setPublicInviteErrorMessage(null);
-            setPublicInviteResponse(null);
-            setPublicRsvpInput({ guestName: '', guestEmail: '', status: '' });
-            setPublicRsvpFieldErrors({});
-            setPublicRsvpErrorMessage(null);
-            setPublicRsvpStatus('idle');
-            setPublicRsvpSuccess(null);
+            resetDetailsTransientState();
             void loadEvents();
           }}
           style={styles.backButton}
@@ -987,6 +1071,40 @@ export default function App() {
               <Pressable onPress={openEditEventScreen} style={styles.refreshButton}>
                 <Text style={styles.refreshText}>Edit event</Text>
               </Pressable>
+              <Pressable
+                onPress={openDeleteEventConfirmation}
+                style={[styles.cancelButton, deleteEventUiState.isDeleting && styles.disabledButton]}
+                disabled={deleteEventUiState.isDeleting}
+              >
+                <Text style={styles.cancelText}>{deleteEventUiState.actionLabel}</Text>
+              </Pressable>
+              {deleteEventUiState.confirmVisible ? (
+                <View style={styles.subCard}>
+                  <Text style={styles.cardText}>{deleteEventUiState.confirmText}</Text>
+                  <View style={styles.createActions}>
+                    <Pressable
+                      onPress={() => void confirmDeleteEvent()}
+                      style={[styles.retryButton, deleteEventUiState.isConfirmDisabled && styles.disabledButton]}
+                      disabled={deleteEventUiState.isConfirmDisabled}
+                    >
+                      <Text style={styles.retryText}>{deleteEventUiState.confirmActionLabel}</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={cancelDeleteEvent}
+                      style={styles.cancelButton}
+                      disabled={deleteEventUiState.isCancelDisabled}
+                    >
+                      <Text style={styles.cancelText}>{deleteEventUiState.cancelLabel}</Text>
+                    </Pressable>
+                  </View>
+                  {deleteEventUiState.loadingLabel ? (
+                    <Text style={styles.cardText}>{deleteEventUiState.loadingLabel}</Text>
+                  ) : null}
+                  {deleteEventUiState.errorMessage ? (
+                    <Text style={styles.errorText}>{deleteEventUiState.errorMessage}</Text>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.card}>
@@ -1503,21 +1621,9 @@ export default function App() {
                 setSelectedEventId(item.id);
                 setDetailsStatus('idle');
                 setDetailsErrorMessage(null);
-                setSelectedAttendeeFilter('all');
                 setEventDetails(null);
-                setInviteStatus('idle');
-                setInviteErrorMessage(null);
-                setInviteLink(null);
-                cancelReminderEditing();
-                setPublicInviteToken(null);
-                setPublicInviteStatus('idle');
-                setPublicInviteErrorMessage(null);
-                setPublicInviteResponse(null);
-                setPublicRsvpInput({ guestName: '', guestEmail: '', status: '' });
-                setPublicRsvpFieldErrors({});
-                setPublicRsvpErrorMessage(null);
-                setPublicRsvpStatus('idle');
-                setPublicRsvpSuccess(null);
+                setEventForEdit(null);
+                resetDetailsTransientState();
               }}
               style={styles.card}
             >
