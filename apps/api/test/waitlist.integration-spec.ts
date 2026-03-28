@@ -52,6 +52,7 @@ describe('Waitlist placement integration', () => {
         startsAt: '2026-03-20T16:30:00.000Z',
         timezone: 'UTC',
         capacityLimit: 2,
+        allowPlusOnes: true,
       })
       .expect(201);
 
@@ -68,17 +69,23 @@ describe('Waitlist placement integration', () => {
     };
   }
 
-  async function rsvp(token: string, guestName: string, guestEmail: string, status: 'going' | 'maybe' | 'not_going') {
+  async function rsvp(
+    token: string,
+    guestName: string,
+    guestEmail: string,
+    status: 'going' | 'maybe' | 'not_going',
+    plusOnesCount?: number,
+  ) {
     return request(app!.getHttpServer())
       .post(`/api/v1/invite-links/${token}/rsvp`)
-      .send({ guestName, guestEmail, status });
+      .send({ guestName, guestEmail, status, plusOnesCount });
   }
 
   it('fills capacity, assigns waitlist, compacts waitlist, and auto-promotes on freed seat', async () => {
     const { eventId, token } = await createEventWithInvite();
 
-    const a = await rsvp(token, 'Guest A', 'a@example.com', 'going');
-    const b = await rsvp(token, 'Guest B', 'b@example.com', 'going');
+    const a = await rsvp(token, 'Guest A', 'a@example.com', 'going', 1);
+    const b = await rsvp(token, 'Guest B', 'b@example.com', 'going', 0);
     const c = await rsvp(token, 'Guest C', 'c@example.com', 'going');
     const d = await rsvp(token, 'Guest D', 'd@example.com', 'going');
 
@@ -87,10 +94,12 @@ describe('Waitlist placement integration', () => {
     expect(c.status).toBe(201);
     expect(d.status).toBe(201);
 
+    expect(b.body.attendanceState).toBe('waitlisted');
+    expect(b.body.waitlistPosition).toBe(1);
     expect(c.body.attendanceState).toBe('waitlisted');
-    expect(c.body.waitlistPosition).toBe(1);
+    expect(c.body.waitlistPosition).toBe(2);
     expect(d.body.attendanceState).toBe('waitlisted');
-    expect(d.body.waitlistPosition).toBe(2);
+    expect(d.body.waitlistPosition).toBe(3);
 
     const cMaybe = await rsvp(token, 'Guest C Updated', 'c@example.com', 'maybe');
     expect(cMaybe.status).toBe(200);
@@ -100,7 +109,7 @@ describe('Waitlist placement integration', () => {
     const dAfterCompact = await rsvp(token, 'Guest D Updated', 'd@example.com', 'going');
     expect(dAfterCompact.status).toBe(200);
     expect(dAfterCompact.body.attendanceState).toBe('waitlisted');
-    expect(dAfterCompact.body.waitlistPosition).toBe(1);
+    expect(dAfterCompact.body.waitlistPosition).toBe(2);
 
     const aNotGoing = await rsvp(token, 'Guest A', 'a@example.com', 'not_going');
     expect(aNotGoing.status).toBe(200);
@@ -117,9 +126,9 @@ describe('Waitlist placement integration', () => {
 
     expect(attendeeRows?.rows).toEqual([
       { guest_email: 'a@example.com', response_status: 'NOT_GOING', waitlist_position: null },
-      { guest_email: 'b@example.com', response_status: 'GOING', waitlist_position: null },
+      { guest_email: 'b@example.com', response_status: 'GOING', waitlist_position: 1 },
       { guest_email: 'c@example.com', response_status: 'MAYBE', waitlist_position: null },
-      { guest_email: 'd@example.com', response_status: 'GOING', waitlist_position: null },
+      { guest_email: 'd@example.com', response_status: 'GOING', waitlist_position: 2 },
     ]);
 
     const resolveResponse = await request(app!.getHttpServer()).get(`/api/v1/invite-links/${token}`).expect(200);
@@ -128,8 +137,11 @@ describe('Waitlist placement integration', () => {
       maybe: 1,
       notGoing: 1,
       total: 4,
-      confirmedGoing: 2,
-      waitlistedGoing: 0,
+      confirmedGoing: 1,
+      waitlistedGoing: 2,
+      goingHeadcount: 4,
+      confirmedHeadcount: 2,
+      waitlistedHeadcount: 2,
       capacityLimit: 2,
       remainingSpots: 0,
       isFull: true,
@@ -145,8 +157,11 @@ describe('Waitlist placement integration', () => {
       maybe: 1,
       notGoing: 1,
       total: 4,
-      confirmedGoing: 2,
-      waitlistedGoing: 0,
+      confirmedGoing: 1,
+      waitlistedGoing: 2,
+      goingHeadcount: 4,
+      confirmedHeadcount: 2,
+      waitlistedHeadcount: 2,
       capacityLimit: 2,
       remainingSpots: 0,
       isFull: true,
@@ -161,7 +176,7 @@ describe('Waitlist placement integration', () => {
 
     expect(organizerAttendees.body.attendees.map((attendee: { attendanceState: string }) => attendee.attendanceState)).toEqual([
       'confirmed',
-      'confirmed',
+      'waitlisted',
       'not_attending',
       'not_attending',
     ]);

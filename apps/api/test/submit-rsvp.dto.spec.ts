@@ -22,6 +22,18 @@ describe('SubmitRsvpDto', () => {
     expect(dto.guestEmail).toBe('nikita@example.com');
   });
 
+  it('accepts optional plusOnesCount in range', () => {
+    const { dto, errors } = validateDto({
+      guestName: 'Nikita',
+      guestEmail: 'nikita@example.com',
+      status: 'going',
+      plusOnesCount: 3,
+    });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.plusOnesCount).toBe(3);
+  });
+
   it('accepts only allowed status values', () => {
     const validStatuses = ['going', 'maybe', 'not_going'];
 
@@ -64,5 +76,22 @@ describe('SubmitRsvpDto', () => {
     expect(errors.some((error) => error.property === 'guestName')).toBe(true);
     expect(errors.some((error) => error.property === 'guestEmail')).toBe(true);
     expect(errors.some((error) => error.property === 'status')).toBe(true);
+  });
+
+  it.each([
+    { plusOnesCount: -1 },
+    { plusOnesCount: 6 },
+    { plusOnesCount: 1.5 },
+    { plusOnesCount: '1.2' },
+    { plusOnesCount: 'abc' },
+  ])('rejects invalid plusOnesCount %#', (payload) => {
+    const { errors } = validateDto({
+      guestName: 'Nikita',
+      guestEmail: 'nikita@example.com',
+      status: 'going',
+      ...payload,
+    });
+
+    expect(errors.some((error) => error.property === 'plusOnesCount')).toBe(true);
   });
 });

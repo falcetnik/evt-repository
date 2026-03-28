@@ -16,12 +16,12 @@ describe('attendance summary helpers', () => {
   it('builds RSVP summary with capacity fields', () => {
     const summary = buildRsvpSummary(
       [
-        { responseStatus: AttendeeResponseStatus.GOING, waitlistPosition: null },
-        { responseStatus: AttendeeResponseStatus.GOING, waitlistPosition: 1 },
-        { responseStatus: AttendeeResponseStatus.MAYBE, waitlistPosition: null },
-        { responseStatus: AttendeeResponseStatus.NOT_GOING, waitlistPosition: null },
+        { responseStatus: AttendeeResponseStatus.GOING, waitlistPosition: null, plusOnesCount: 1 },
+        { responseStatus: AttendeeResponseStatus.GOING, waitlistPosition: 1, plusOnesCount: 2 },
+        { responseStatus: AttendeeResponseStatus.MAYBE, waitlistPosition: null, plusOnesCount: 5 },
+        { responseStatus: AttendeeResponseStatus.NOT_GOING, waitlistPosition: null, plusOnesCount: 4 },
       ],
-      1,
+      4,
     );
 
     expect(summary).toEqual({
@@ -31,9 +31,12 @@ describe('attendance summary helpers', () => {
       total: 4,
       confirmedGoing: 1,
       waitlistedGoing: 1,
-      capacityLimit: 1,
-      remainingSpots: 0,
-      isFull: true,
+      goingHeadcount: 5,
+      confirmedHeadcount: 2,
+      waitlistedHeadcount: 3,
+      capacityLimit: 4,
+      remainingSpots: 2,
+      isFull: false,
     });
   });
 
@@ -43,30 +46,35 @@ describe('attendance summary helpers', () => {
         id: '4',
         responseStatus: AttendeeResponseStatus.NOT_GOING,
         waitlistPosition: null,
+        plusOnesCount: 0,
         createdAt: new Date('2026-03-20T10:03:00.000Z'),
       },
       {
         id: '2',
         responseStatus: AttendeeResponseStatus.GOING,
         waitlistPosition: 2,
+        plusOnesCount: 0,
         createdAt: new Date('2026-03-20T10:01:00.000Z'),
       },
       {
         id: '3',
         responseStatus: AttendeeResponseStatus.MAYBE,
         waitlistPosition: null,
+        plusOnesCount: 0,
         createdAt: new Date('2026-03-20T10:02:00.000Z'),
       },
       {
         id: '1',
         responseStatus: AttendeeResponseStatus.GOING,
         waitlistPosition: null,
+        plusOnesCount: 0,
         createdAt: new Date('2026-03-20T10:00:00.000Z'),
       },
       {
         id: '5',
         responseStatus: AttendeeResponseStatus.GOING,
         waitlistPosition: 1,
+        plusOnesCount: 0,
         createdAt: new Date('2026-03-20T10:04:00.000Z'),
       },
     ]);

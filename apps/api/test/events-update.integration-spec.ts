@@ -67,7 +67,7 @@ describe('Events update API integration', () => {
     }
   });
 
-  async function createEvent(owner = 'organizer-1', capacityLimit: number | null = 2) {
+  async function createEvent(owner = 'organizer-1', capacityLimit: number | null = 2, allowPlusOnes = false) {
     const response = await request(app!.getHttpServer())
       .post('/api/v1/events')
       .set('x-dev-user-id', owner)
@@ -78,6 +78,7 @@ describe('Events update API integration', () => {
         startsAt: ORIGINAL_STARTS_AT,
         timezone: 'UTC',
         capacityLimit,
+        allowPlusOnes,
       })
       .expect(201);
 
@@ -117,6 +118,18 @@ describe('Events update API integration', () => {
       location: 'Updated Location',
       organizerUserId: 'organizer-1',
     });
+  });
+
+  it('updates allowPlusOnes field', async () => {
+    const eventId = await createEvent();
+
+    const response = await request(app!.getHttpServer())
+      .patch(`/api/v1/events/${eventId}`)
+      .set('x-dev-user-id', 'organizer-1')
+      .send({ allowPlusOnes: true })
+      .expect(200);
+
+    expect(response.body.allowPlusOnes).toBe(true);
   });
 
   it('returns 401 when organizer header is missing', async () => {
@@ -328,5 +341,26 @@ describe('Events update API integration', () => {
       .expect(200);
 
     expect(attendeesAfter.body.attendees).toEqual(attendeesBefore.body.attendees);
+  });
+
+  it('rejects disabling plus ones when attendees already use them', async () => {
+    const eventId = await createEvent('organizer-1', 5, true);
+    const token = await createInviteToken(eventId);
+
+    await request(app!.getHttpServer())
+      .post(`/api/v1/invite-links/${token}/rsvp`)
+      .send({
+        guestName: 'Guest A',
+        guestEmail: 'a@example.com',
+        status: 'going',
+        plusOnesCount: 2,
+      })
+      .expect(201);
+
+    await request(app!.getHttpServer())
+      .patch(`/api/v1/events/${eventId}`)
+      .set('x-dev-user-id', 'organizer-1')
+      .send({ allowPlusOnes: false })
+      .expect(400);
   });
 });

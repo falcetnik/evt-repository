@@ -19,6 +19,13 @@ describe('UpdateEventDto', () => {
     expect(dto.title).toBe('Updated Event Title');
   });
 
+  it('accepts optional allowPlusOnes', () => {
+    const { dto, errors } = validateDto({ allowPlusOnes: true });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.allowPlusOnes).toBe(true);
+  });
+
   it('normalizes blank description to null', () => {
     const { dto, errors } = validateDto({ description: '   ' });
 
@@ -66,4 +73,5 @@ describe('UpdateEventDto', () => {
 
     expect(errors.some((error) => error.property === 'unexpected')).toBe(true);
   });
+
 });

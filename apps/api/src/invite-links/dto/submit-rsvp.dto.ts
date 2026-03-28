@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsIn, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 const trimString = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 const trimAndLowercase = ({ value }: { value: unknown }) =>
@@ -22,4 +22,11 @@ export class SubmitRsvpDto {
   @IsString()
   @IsIn(['going', 'maybe', 'not_going'])
   status!: 'going' | 'maybe' | 'not_going';
+
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined ? value : Number(value)))
+  @IsInt()
+  @Min(0)
+  @Max(5)
+  plusOnesCount?: number;
 }
