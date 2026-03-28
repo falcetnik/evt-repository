@@ -161,13 +161,6 @@ describe('Audit log integration', () => {
     expect((await rsvp(firstToken, 'Guest B', 'b@example.com', 'going', 'req-rsvp-create-second')).status).toBe(201);
     expect((await rsvp(firstToken, 'Guest A Updated', 'a@example.com', 'maybe', 'req-rsvp-update')).status).toBe(200);
 
-    await request(app!.getHttpServer())
-      .patch(`/api/v1/events/${firstEventId}`)
-      .set('x-dev-user-id', 'organizer-1')
-      .set('x-request-id', 'req-capacity-increase')
-      .send({ capacityLimit: 2 })
-      .expect(200);
-
     const secondEventId = await createEvent(1);
     const secondToken = await createInviteLink(secondEventId, 'req-invite-upsert-second');
     expect((await rsvp(secondToken, 'Guest C', 'c@example.com', 'going', 'req-rsvp-second-event-first')).status).toBe(201);
@@ -175,6 +168,18 @@ describe('Audit log integration', () => {
 
     await request(app!.getHttpServer())
       .patch(`/api/v1/events/${secondEventId}`)
+      .set('x-dev-user-id', 'organizer-1')
+      .set('x-request-id', 'req-capacity-increase')
+      .send({ capacityLimit: 2 })
+      .expect(200);
+
+    const thirdEventId = await createEvent(1);
+    const thirdToken = await createInviteLink(thirdEventId, 'req-invite-upsert-third');
+    expect((await rsvp(thirdToken, 'Guest E', 'e@example.com', 'going', 'req-rsvp-third-event-first')).status).toBe(201);
+    expect((await rsvp(thirdToken, 'Guest F', 'f@example.com', 'going', 'req-rsvp-third-event-second')).status).toBe(201);
+
+    await request(app!.getHttpServer())
+      .patch(`/api/v1/events/${thirdEventId}`)
       .set('x-dev-user-id', 'organizer-1')
       .set('x-request-id', 'req-capacity-unlimited')
       .send({ capacityLimit: null })
@@ -207,7 +212,7 @@ describe('Audit log integration', () => {
       expect.objectContaining({
         attendeeId: created.body.attendeeId,
         status: 'maybe',
-        attendanceState: 'maybe',
+        attendanceState: 'not_attending',
         waitlistPosition: null,
       }),
     );
@@ -219,12 +224,12 @@ describe('Audit log integration', () => {
     const increaseRebalance = rebalanceRows.find((row) => row.request_id === 'req-capacity-increase');
     expect(increaseRebalance).toBeDefined();
     expect(increaseRebalance?.actor_user_id).toBe('organizer-1');
-    expect(increaseRebalance?.entity_id).toBe(firstEventId);
+    expect(increaseRebalance?.entity_id).toBe(secondEventId);
     expect(increaseRebalance?.metadata_json).toEqual({
       capacityBefore: 1,
       capacityAfter: 2,
-      confirmedGoingBefore: 0,
-      confirmedGoingAfter: 1,
+      confirmedGoingBefore: 1,
+      confirmedGoingAfter: 2,
       waitlistedGoingBefore: 1,
       waitlistedGoingAfter: 0,
       promotedCount: 1,
@@ -234,7 +239,7 @@ describe('Audit log integration', () => {
     const unlimitedRebalance = rebalanceRows.find((row) => row.request_id === 'req-capacity-unlimited');
     expect(unlimitedRebalance).toBeDefined();
     expect(unlimitedRebalance?.actor_user_id).toBe('organizer-1');
-    expect(unlimitedRebalance?.entity_id).toBe(secondEventId);
+    expect(unlimitedRebalance?.entity_id).toBe(thirdEventId);
     expect(unlimitedRebalance?.metadata_json).toEqual({
       capacityBefore: 1,
       capacityAfter: null,
