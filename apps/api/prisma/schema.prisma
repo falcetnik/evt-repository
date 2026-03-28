@@ -130,7 +130,7 @@ model EventReminder {
 
 model AuditLog {
   id          String   @id @default(cuid())
-  actorUserId String   @map("actor_user_id")
+  actorUserId String?  @map("actor_user_id")
   action      String
   entityType  String   @map("entity_type")
   entityId    String   @map("entity_id")
