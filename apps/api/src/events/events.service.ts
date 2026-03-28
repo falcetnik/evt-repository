@@ -118,6 +118,52 @@ export class EventsService {
     return this.toResponse(event);
   }
 
+  async deleteEvent(currentUser: AuthUser, eventId: string) {
+    await this.prisma.client.$transaction(async (tx) => {
+      const event = await tx.event.findFirst({
+        where: {
+          id: eventId,
+          organizerUserId: currentUser.id,
+        },
+        select: {
+          id: true,
+          capacityLimit: true,
+          startsAt: true,
+          timezone: true,
+          _count: {
+            select: {
+              attendees: true,
+              inviteLinks: true,
+              reminders: true,
+            },
+          },
+        },
+      });
+
+      if (!event) {
+        throw new NotFoundException('Event not found');
+      }
+
+      await tx.event.delete({ where: { id: event.id } });
+
+      await this.auditService.logAction({
+        tx,
+        actorUserId: currentUser.id,
+        action: 'event.deleted',
+        entityType: 'event',
+        entityId: event.id,
+        metadata: {
+          attendeeCount: event._count.attendees,
+          inviteLinkCount: event._count.inviteLinks,
+          reminderCount: event._count.reminders,
+          capacityLimit: event.capacityLimit,
+          startsAt: event.startsAt.toISOString(),
+          timezone: event.timezone,
+        },
+      });
+    });
+  }
+
   async updateEvent(currentUser: AuthUser, eventId: string, dto: UpdateEventDto) {
     const now = new Date();
 

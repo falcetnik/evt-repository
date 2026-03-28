@@ -4,21 +4,28 @@ import { MetricsService } from './metrics.service';
 import { requestContext } from './request-context';
 import { resolveRequestId } from './request-id.util';
 
+type ObservabilityRequest = Request & {
+  requestId?: string;
+  observabilityStartedAt?: bigint;
+  observabilityRecorded?: boolean;
+};
+
 @Injectable()
 export class RequestIdMiddleware implements NestMiddleware {
   constructor(private readonly metricsService: MetricsService) {}
 
   use(req: Request, res: Response, next: NextFunction) {
+    const observabilityRequest = req as ObservabilityRequest;
     const requestId = resolveRequestId(req.headers['x-request-id']);
 
-    req.requestId = requestId;
-    req.observabilityStartedAt = process.hrtime.bigint();
-    req.observabilityRecorded = false;
+    observabilityRequest.requestId = requestId;
+    observabilityRequest.observabilityStartedAt = process.hrtime.bigint();
+    observabilityRequest.observabilityRecorded = false;
 
     res.setHeader('x-request-id', requestId);
 
     res.once('finish', () => {
-      if (req.observabilityRecorded) {
+      if (observabilityRequest.observabilityRecorded) {
         return;
       }
 
@@ -26,7 +33,7 @@ export class RequestIdMiddleware implements NestMiddleware {
         return;
       }
 
-      const startedAt = req.observabilityStartedAt ?? process.hrtime.bigint();
+      const startedAt = observabilityRequest.observabilityStartedAt ?? process.hrtime.bigint();
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
 
       this.metricsService.recordHttpRequest({
@@ -39,7 +46,7 @@ export class RequestIdMiddleware implements NestMiddleware {
       console.error(
         JSON.stringify({
           type: 'http_error',
-          requestId: req.requestId ?? null,
+          requestId: observabilityRequest.requestId ?? null,
           method: req.method,
           path: req.path,
           statusCode: res.statusCode,
@@ -48,7 +55,7 @@ export class RequestIdMiddleware implements NestMiddleware {
         }),
       );
 
-      req.observabilityRecorded = true;
+      observabilityRequest.observabilityRecorded = true;
     });
 
     requestContext.run({ requestId }, () => next());
