@@ -8,6 +8,7 @@ const samplePayload = {
   startsAt: '2099-03-25T19:30:00.000Z',
   timezone: 'Europe/Moscow',
   capacityLimit: null,
+  allowPlusOnes: true,
 };
 
 describe('create event API helper', () => {

@@ -14,6 +14,7 @@ describe('edit-event form model', () => {
       startsAt: '2099-03-25T19:30:00.000Z',
       timezone: 'Europe/Moscow',
       capacityLimit: 8,
+      allowPlusOnes: true,
       organizerUserId: 'organizer-1',
       createdAt: '2099-01-01T00:00:00.000Z',
       updatedAt: '2099-01-02T00:00:00.000Z',
@@ -26,6 +27,7 @@ describe('edit-event form model', () => {
       startsAt: '2099-03-25T19:30:00.000Z',
       timezone: 'Europe/Moscow',
       capacityLimit: '8',
+      allowPlusOnes: true,
     });
   });
 
@@ -37,6 +39,7 @@ describe('edit-event form model', () => {
       startsAt: ' 2099-03-26T19:30:00.000Z ',
       timezone: ' Europe/Moscow ',
       capacityLimit: ' 10 ',
+      allowPlusOnes: false,
     });
 
     expect(result).toEqual({
@@ -48,6 +51,7 @@ describe('edit-event form model', () => {
         startsAt: '2099-03-26T19:30:00.000Z',
         timezone: 'Europe/Moscow',
         capacityLimit: 10,
+        allowPlusOnes: false,
       },
     });
   });
@@ -60,6 +64,7 @@ describe('edit-event form model', () => {
       startsAt: '2099-03-25T19:30:00.000Z',
       timezone: 'UTC',
       capacityLimit: '   ',
+      allowPlusOnes: false,
     });
 
     expect(result).toEqual({
@@ -71,6 +76,7 @@ describe('edit-event form model', () => {
         startsAt: '2099-03-25T19:30:00.000Z',
         timezone: 'UTC',
         capacityLimit: null,
+        allowPlusOnes: false,
       },
     });
   });
@@ -83,6 +89,7 @@ describe('edit-event form model', () => {
       startsAt: ' ',
       timezone: ' ',
       capacityLimit: '',
+      allowPlusOnes: false,
     });
 
     expect(result.ok).toBe(false);
@@ -101,6 +108,7 @@ describe('edit-event form model', () => {
       startsAt: 'not-an-iso',
       timezone: 'UTC',
       capacityLimit: '',
+      allowPlusOnes: false,
     });
 
     expect(result.ok).toBe(false);
@@ -117,6 +125,7 @@ describe('edit-event form model', () => {
       startsAt: '2099-03-25T19:30:00.000Z',
       timezone: 'UTC',
       capacityLimit: '2.5',
+      allowPlusOnes: false,
     });
 
     expect(invalidDecimal.ok).toBe(false);
@@ -135,6 +144,7 @@ describe('edit-event form model', () => {
       startsAt: '2099-03-25T19:30:00.000Z',
       timezone: 'Europe/Moscow',
       capacityLimit: '12',
+      allowPlusOnes: true,
     });
 
     expect(result.ok).toBe(true);
@@ -146,6 +156,7 @@ describe('edit-event form model', () => {
         startsAt: '2099-03-25T19:30:00.000Z',
         timezone: 'Europe/Moscow',
         capacityLimit: 12,
+        allowPlusOnes: true,
       });
     }
   });

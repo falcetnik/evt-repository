@@ -7,6 +7,7 @@ export type CreateEventInput = {
   startsAt: string;
   timezone: string;
   capacityLimit?: number | null;
+  allowPlusOnes: boolean;
 };
 
 export type CreateEventResponse = {
@@ -17,6 +18,7 @@ export type CreateEventResponse = {
   startsAt: string;
   timezone: string;
   capacityLimit: number | null;
+  allowPlusOnes: boolean;
   organizerUserId: string;
   createdAt: string;
   updatedAt: string;

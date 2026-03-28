@@ -8,6 +8,7 @@ export type EditEventFormInput = {
   startsAt: string;
   timezone: string;
   capacityLimit: string;
+  allowPlusOnes: boolean;
 };
 
 export type EditEventFormFieldErrors = Partial<Record<keyof EditEventFormInput, string>>;
@@ -35,6 +36,7 @@ export const buildEditEventInitialForm = (event: OrganizerEventDetailsResponse):
   startsAt: event.startsAt,
   timezone: event.timezone,
   capacityLimit: event.capacityLimit === null ? '' : String(event.capacityLimit),
+  allowPlusOnes: event.allowPlusOnes,
 });
 
 export const buildUpdateEventPayloadFromForm = (input: EditEventFormInput): EditEventFormBuildResult => {
@@ -90,6 +92,7 @@ export const buildUpdateEventPayloadFromForm = (input: EditEventFormInput): Edit
       startsAt,
       timezone,
       capacityLimit,
+      allowPlusOnes: input.allowPlusOnes,
     },
   };
 };

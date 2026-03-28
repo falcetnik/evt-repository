@@ -9,6 +9,7 @@ export type EventDetailsViewModel = {
     descriptionLabel: string;
     locationLabel: string;
     capacityLabel: string;
+    plusOnesLabel: string;
   };
   summary: {
     totalLabel: string;
@@ -44,6 +45,7 @@ export const mapEventDetailsToViewModel = (bundle: OrganizerEventDetailsBundle):
     status: attendee.status,
     attendanceState: attendee.attendanceState,
     waitlistPosition: attendee.waitlistPosition,
+    plusOnesCount: attendee.plusOnesCount,
   }));
 
   const reminders = bundle.reminders.reminders.map((reminder) => ({
@@ -62,6 +64,7 @@ export const mapEventDetailsToViewModel = (bundle: OrganizerEventDetailsBundle):
       locationLabel: `Location: ${bundle.event.location ?? 'Location not set'}`,
       capacityLabel:
         bundle.event.capacityLimit === null ? 'Capacity: No limit' : `Capacity: ${bundle.event.capacityLimit}`,
+      plusOnesLabel: `Plus-ones: ${bundle.event.allowPlusOnes ? 'allowed' : 'not allowed'}`,
     },
     summary: {
       totalLabel: `Total: ${bundle.attendees.summary.total}`,
