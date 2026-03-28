@@ -263,7 +263,7 @@ export class EventsService {
           throw new BadRequestException('capacityLimit cannot be below confirmed headcount');
         }
 
-        const nextCapacityLimit = dto.capacityLimit ?? eventRow.capacity_limit;
+        const nextCapacityLimit = hasCapacityLimitField ? (dto.capacityLimit ?? null) : eventRow.capacity_limit;
         const nextWaitlistPositionById = buildGoingWaitlistPlacement(attendees, nextCapacityLimit);
 
         for (const attendee of attendees) {
@@ -281,7 +281,11 @@ export class EventsService {
           return waitlistPosition === null;
         }).length;
         const waitlistedGoingAfterCount = goingAttendees.length - confirmedGoingAfterCount;
-        const promotedCount = 0;
+        const promotedCount = goingAttendees.filter((attendee) => {
+          const wasWaitlisted = attendee.waitlistPosition !== null;
+          const nextWaitlistPosition = nextWaitlistPositionById.get(attendee.id) ?? null;
+          return wasWaitlisted && nextWaitlistPosition === null;
+        }).length;
         const placementChanged = attendees.some((attendee) => {
           const nextWaitlistPosition = nextWaitlistPositionById.get(attendee.id) ?? null;
           return attendee.waitlistPosition !== nextWaitlistPosition;

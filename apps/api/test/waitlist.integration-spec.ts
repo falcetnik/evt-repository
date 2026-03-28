@@ -126,9 +126,9 @@ describe('Waitlist placement integration', () => {
 
     expect(attendeeRows?.rows).toEqual([
       { guest_email: 'a@example.com', response_status: 'NOT_GOING', waitlist_position: null },
-      { guest_email: 'b@example.com', response_status: 'GOING', waitlist_position: 1 },
+      { guest_email: 'b@example.com', response_status: 'GOING', waitlist_position: null },
       { guest_email: 'c@example.com', response_status: 'MAYBE', waitlist_position: null },
-      { guest_email: 'd@example.com', response_status: 'GOING', waitlist_position: 2 },
+      { guest_email: 'd@example.com', response_status: 'GOING', waitlist_position: null },
     ]);
 
     const resolveResponse = await request(app!.getHttpServer()).get(`/api/v1/invite-links/${token}`).expect(200);
@@ -137,11 +137,11 @@ describe('Waitlist placement integration', () => {
       maybe: 1,
       notGoing: 1,
       total: 4,
-      confirmedGoing: 1,
-      waitlistedGoing: 2,
-      goingHeadcount: 4,
+      confirmedGoing: 2,
+      waitlistedGoing: 0,
+      goingHeadcount: 2,
       confirmedHeadcount: 2,
-      waitlistedHeadcount: 2,
+      waitlistedHeadcount: 0,
       capacityLimit: 2,
       remainingSpots: 0,
       isFull: true,
@@ -157,11 +157,11 @@ describe('Waitlist placement integration', () => {
       maybe: 1,
       notGoing: 1,
       total: 4,
-      confirmedGoing: 1,
-      waitlistedGoing: 2,
-      goingHeadcount: 4,
+      confirmedGoing: 2,
+      waitlistedGoing: 0,
+      goingHeadcount: 2,
       confirmedHeadcount: 2,
-      waitlistedHeadcount: 2,
+      waitlistedHeadcount: 0,
       capacityLimit: 2,
       remainingSpots: 0,
       isFull: true,
@@ -176,7 +176,7 @@ describe('Waitlist placement integration', () => {
 
     expect(organizerAttendees.body.attendees.map((attendee: { attendanceState: string }) => attendee.attendanceState)).toEqual([
       'confirmed',
-      'waitlisted',
+      'confirmed',
       'not_attending',
       'not_attending',
     ]);
