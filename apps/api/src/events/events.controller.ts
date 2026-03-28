@@ -58,6 +58,17 @@ export class EventsController {
     return this.eventsService.updateEvent(currentUser, eventId, dto);
   }
 
+
+  @Delete(':eventId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete organizer event by id' })
+  @ApiResponse({ status: 204, description: 'Event deleted' })
+  @ApiResponse({ status: 401, description: 'Unauthorized organizer' })
+  @ApiResponse({ status: 404, description: 'Event not found' })
+  async deleteEvent(@CurrentUser() currentUser: AuthUser, @Param('eventId') eventId: string) {
+    await this.eventsService.deleteEvent(currentUser, eventId);
+  }
+
   @Get(':eventId/attendees')
   @ApiOperation({ summary: 'Get organizer attendee list for event' })
   @ApiResponse({ status: 200, description: 'Attendees loaded with attendanceState, waitlistPosition, and capacity-aware summary' })
