@@ -5,6 +5,15 @@ export type AttendeeListItem = {
   status: 'going' | 'maybe' | 'not_going';
   attendanceState: 'confirmed' | 'waitlisted' | 'not_attending';
   waitlistPosition: number | null;
+  plusOnesCount: number;
+};
+
+export const buildAttendeePlusOnesLabel = (attendee: AttendeeListItem): string | null => {
+  if (attendee.plusOnesCount < 1) {
+    return null;
+  }
+
+  return `+${attendee.plusOnesCount}`;
 };
 
 export const buildAttendeeStatusLabel = (attendee: AttendeeListItem): string => {

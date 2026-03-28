@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildCreateEventPayloadFromForm } from './create-event-form-model';
+import { buildCreateEventPayloadFromForm, createInitialCreateEventFormInput } from './create-event-form-model';
+
+describe('createInitialCreateEventFormInput', () => {
+  it('defaults allowPlusOnes to false', () => {
+    expect(createInitialCreateEventFormInput().allowPlusOnes).toBe(false);
+  });
+});
 
 describe('create-event form model', () => {
   it('normalizes field values and returns payload when form is valid', () => {
@@ -10,6 +16,7 @@ describe('create-event form model', () => {
       startsAt: ' 2099-03-25T19:30:00.000Z ',
       timezone: ' Europe/Moscow ',
       capacityLimit: ' 8 ',
+      allowPlusOnes: true,
     });
 
     expect(result).toEqual({
@@ -21,6 +28,7 @@ describe('create-event form model', () => {
         startsAt: '2099-03-25T19:30:00.000Z',
         timezone: 'Europe/Moscow',
         capacityLimit: 8,
+        allowPlusOnes: true,
       },
     });
   });
@@ -33,6 +41,7 @@ describe('create-event form model', () => {
       startsAt: '   ',
       timezone: '   ',
       capacityLimit: '',
+      allowPlusOnes: false,
     });
 
     expect(result.ok).toBe(false);
@@ -51,6 +60,7 @@ describe('create-event form model', () => {
       startsAt: '2099-03-25T19:30:00.000Z',
       timezone: 'UTC',
       capacityLimit: '2.5',
+      allowPlusOnes: false,
     });
 
     expect(decimalCapacity.ok).toBe(false);
@@ -65,6 +75,7 @@ describe('create-event form model', () => {
       startsAt: '2099-03-25T19:30:00.000Z',
       timezone: 'UTC',
       capacityLimit: '0',
+      allowPlusOnes: false,
     });
 
     expect(lowCapacity.ok).toBe(false);
@@ -81,6 +92,7 @@ describe('create-event form model', () => {
       startsAt: 'not-a-date',
       timezone: 'UTC',
       capacityLimit: '',
+      allowPlusOnes: false,
     });
 
     expect(result.ok).toBe(false);
@@ -97,6 +109,7 @@ describe('create-event form model', () => {
       startsAt: '2099-03-25T19:30:00.000Z',
       timezone: 'UTC',
       capacityLimit: '   ',
+      allowPlusOnes: false,
     });
 
     expect(result).toEqual({
@@ -108,6 +121,7 @@ describe('create-event form model', () => {
         startsAt: '2099-03-25T19:30:00.000Z',
         timezone: 'UTC',
         capacityLimit: null,
+        allowPlusOnes: false,
       },
     });
   });

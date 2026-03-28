@@ -11,6 +11,7 @@ const sampleBundle: OrganizerEventDetailsBundle = {
     startsAt: '2099-01-01T10:00:00.000Z',
     timezone: 'UTC',
     capacityLimit: 10,
+    allowPlusOnes: true,
     organizerUserId: 'org-1',
     createdAt: '2099-01-01T08:00:00.000Z',
     updatedAt: '2099-01-01T08:00:00.000Z',
@@ -36,6 +37,7 @@ const sampleBundle: OrganizerEventDetailsBundle = {
         status: 'going',
         attendanceState: 'confirmed',
         waitlistPosition: null,
+        plusOnesCount: 0,
         createdAt: '2099-01-01T08:00:00.000Z',
         updatedAt: '2099-01-01T08:00:00.000Z',
       },
@@ -46,6 +48,7 @@ const sampleBundle: OrganizerEventDetailsBundle = {
         status: 'going',
         attendanceState: 'waitlisted',
         waitlistPosition: 2,
+        plusOnesCount: 2,
         createdAt: '2099-01-01T08:00:00.000Z',
         updatedAt: '2099-01-01T08:00:00.000Z',
       },
@@ -74,6 +77,7 @@ describe('event details model mapper', () => {
     expect(model.event.startsAtLabel).toBe('Starts: 2099-01-01T10:00:00Z');
     expect(model.event.timezoneLabel).toBe('Timezone: UTC');
     expect(model.summary.goingLabel).toBe('Going: 2');
+    expect(model.event.plusOnesLabel).toBe('Plus-ones: allowed');
     expect(model.summary.waitlistedGoingLabel).toBe('Waitlisted going: 1');
     expect(model.summary.isFullLabel).toBe('Full: Yes');
     expect(model.attendees[0].status).toBe('going');
@@ -91,12 +95,14 @@ describe('event details model mapper', () => {
         description: null,
         location: null,
         capacityLimit: null,
+        allowPlusOnes: false,
       },
     });
 
     expect(model.event.descriptionLabel).toBe('Description: No description');
     expect(model.event.locationLabel).toBe('Location: Location not set');
     expect(model.event.capacityLabel).toBe('Capacity: No limit');
+    expect(model.event.plusOnesLabel).toBe('Plus-ones: not allowed');
   });
 
   it('returns section-level empty-state messages for empty attendees and reminders', () => {

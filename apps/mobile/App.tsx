@@ -37,6 +37,7 @@ import { type EventListScope, fetchOrganizerEvents } from './src/api/events';
 import { parseReminderOffsetsInput } from './src/features/event-details/reminder-editor-model';
 import {
   buildCreateEventPayloadFromForm,
+  createInitialCreateEventFormInput,
   type CreateEventFormInput,
 } from './src/features/create-event/create-event-form-model';
 import {
@@ -52,7 +53,7 @@ import {
   filterAttendeesBySelection,
   type AttendeeFilter,
 } from './src/features/event-details/attendee-filter-model';
-import { buildAttendeeStatusLabel } from './src/features/event-details/attendee-row-model';
+import { buildAttendeePlusOnesLabel, buildAttendeeStatusLabel } from './src/features/event-details/attendee-row-model';
 import { buildCurrentInviteLinkSectionState } from './src/features/event-details/current-invite-link-model';
 import { buildRevokeInviteLinkUiState, type RevokeInviteLinkUiStatus } from './src/features/event-details/revoke-invite-link-model';
 import { mapInviteLinkToViewModel } from './src/features/event-details/invite-link-model';
@@ -65,14 +66,7 @@ import { buildPublicRsvpPayloadFromForm } from './src/features/public-invite/pub
 type LoadStatus = 'idle' | 'loading' | 'error' | 'success';
 
 const scopeOptions: EventListScope[] = ['upcoming', 'past', 'all'];
-const initialCreateForm: CreateEventFormInput = {
-  title: '',
-  description: '',
-  location: '',
-  startsAt: '',
-  timezone: '',
-  capacityLimit: '',
-};
+const initialCreateForm: CreateEventFormInput = createInitialCreateEventFormInput();
 const initialEditForm: EditEventFormInput = {
   title: '',
   description: '',
@@ -80,6 +74,7 @@ const initialEditForm: EditEventFormInput = {
   startsAt: '',
   timezone: '',
   capacityLimit: '',
+  allowPlusOnes: false,
 };
 
 type PublicInviteOrigin = 'details-preview' | 'standalone-entry' | 'deep-link';
@@ -271,20 +266,20 @@ export default function App() {
     }
   }, [screen, selectedEventId, loadEventDetails, loadCurrentInviteLink]);
 
-  const updateCreateFormField = useCallback(
-    (field: keyof CreateEventFormInput, value: string) => {
-      setCreateForm((prev) => ({ ...prev, [field]: value }));
-    },
-    [],
-  );
+  const updateCreateFormField = useCallback(<TField extends keyof CreateEventFormInput>(
+    field: TField,
+    value: CreateEventFormInput[TField],
+  ) => {
+    setCreateForm((prev) => ({ ...prev, [field]: value }));
+  }, []);
 
-  const updateEditFormField = useCallback(
-    (field: keyof EditEventFormInput, value: string) => {
-      setEditForm((prev) => ({ ...prev, [field]: value }));
-      setEditFieldErrors((prev) => ({ ...prev, [field]: undefined }));
-    },
-    [],
-  );
+  const updateEditFormField = useCallback(<TField extends keyof EditEventFormInput>(
+    field: TField,
+    value: EditEventFormInput[TField],
+  ) => {
+    setEditForm((prev) => ({ ...prev, [field]: value }));
+    setEditFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+  }, []);
 
   const openEditEventScreen = useCallback(() => {
     if (!eventForEdit) {
@@ -1068,6 +1063,7 @@ export default function App() {
               <Text style={styles.cardText}>{eventDetails.event.locationLabel}</Text>
               <Text style={styles.cardText}>{eventDetails.event.descriptionLabel}</Text>
               <Text style={styles.cardText}>{eventDetails.event.capacityLabel}</Text>
+              <Text style={styles.cardText}>{eventDetails.event.plusOnesLabel}</Text>
               <Pressable onPress={openEditEventScreen} style={styles.refreshButton}>
                 <Text style={styles.refreshText}>Edit event</Text>
               </Pressable>
@@ -1173,7 +1169,12 @@ export default function App() {
                   </View>
                   {visibleAttendees.map((attendee) => (
                     <View key={attendee.key} style={styles.subCard}>
-                      <Text style={styles.cardText}>{attendee.guestName}</Text>
+                      <View style={styles.attendeeNameRow}>
+                        <Text style={styles.cardText}>{attendee.guestName}</Text>
+                        {buildAttendeePlusOnesLabel(attendee) ? (
+                          <Text style={styles.cardText}>{buildAttendeePlusOnesLabel(attendee)}</Text>
+                        ) : null}
+                      </View>
                       <Text style={styles.cardText}>{attendee.guestEmail}</Text>
                       <Text style={styles.cardText}>{buildAttendeeStatusLabel(attendee)}</Text>
                     </View>
@@ -1417,6 +1418,25 @@ export default function App() {
           />
           {editFieldErrors.capacityLimit ? <Text style={styles.errorText}>{editFieldErrors.capacityLimit}</Text> : null}
 
+          <Text style={styles.inputLabel}>Allow plus-ones</Text>
+          <Text style={styles.subtitle}>Guests can bring additional people.</Text>
+          <View style={styles.toggleRow}>
+            <Pressable
+              onPress={() => updateEditFormField('allowPlusOnes', false)}
+              style={[styles.scopeButton, !editForm.allowPlusOnes && styles.scopeButtonActive]}
+              disabled={editStatus === 'submitting'}
+            >
+              <Text style={[styles.scopeButtonText, !editForm.allowPlusOnes && styles.scopeButtonTextActive]}>Off</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => updateEditFormField('allowPlusOnes', true)}
+              style={[styles.scopeButton, editForm.allowPlusOnes && styles.scopeButtonActive]}
+              disabled={editStatus === 'submitting'}
+            >
+              <Text style={[styles.scopeButtonText, editForm.allowPlusOnes && styles.scopeButtonTextActive]}>On</Text>
+            </Pressable>
+          </View>
+
           {editStatus === 'submitting' ? (
             <View style={styles.centerState}>
               <ActivityIndicator size="small" />
@@ -1501,6 +1521,27 @@ export default function App() {
             editable={createStatus !== 'submitting'}
             keyboardType="number-pad"
           />
+
+          <Text style={styles.inputLabel}>Allow plus-ones</Text>
+          <Text style={styles.subtitle}>Guests can bring additional people.</Text>
+          <View style={styles.toggleRow}>
+            <Pressable
+              onPress={() => updateCreateFormField('allowPlusOnes', false)}
+              style={[styles.scopeButton, !createForm.allowPlusOnes && styles.scopeButtonActive]}
+              disabled={createStatus === 'submitting'}
+            >
+              <Text style={[styles.scopeButtonText, !createForm.allowPlusOnes && styles.scopeButtonTextActive]}>
+                Off
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => updateCreateFormField('allowPlusOnes', true)}
+              style={[styles.scopeButton, createForm.allowPlusOnes && styles.scopeButtonActive]}
+              disabled={createStatus === 'submitting'}
+            >
+              <Text style={[styles.scopeButtonText, createForm.allowPlusOnes && styles.scopeButtonTextActive]}>On</Text>
+            </Pressable>
+          </View>
 
           {createStatus === 'submitting' ? (
             <View style={styles.centerState}>
@@ -1781,6 +1822,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     color: '#111827',
   },
+  inputLabel: {
+    fontSize: 13,
+    color: '#111827',
+    fontWeight: '600',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   createActions: {
     gap: 8,
   },
@@ -1831,6 +1881,11 @@ const styles = StyleSheet.create({
     gap: 2,
     borderWidth: 1,
     borderColor: '#e5e7eb',
+  },
+  attendeeNameRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   cardTitle: {
     fontSize: 16,

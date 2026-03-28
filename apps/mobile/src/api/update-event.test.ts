@@ -8,6 +8,7 @@ const samplePayload = {
   startsAt: '2099-03-26T19:30:00.000Z',
   timezone: 'Europe/Moscow',
   capacityLimit: 10,
+  allowPlusOnes: true,
 };
 
 describe('update event API helper', () => {
@@ -55,6 +56,7 @@ describe('update event API helper', () => {
       startsAt: '2099-03-26T19:30:00.000Z',
       timezone: 'Europe/Moscow',
       capacityLimit: 10,
+      allowPlusOnes: true,
       organizerUserId: 'organizer-1',
       createdAt: '2099-01-01T00:00:00.000Z',
       updatedAt: '2099-01-02T00:00:00.000Z',

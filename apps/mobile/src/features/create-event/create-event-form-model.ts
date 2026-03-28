@@ -7,6 +7,7 @@ export type CreateEventFormInput = {
   startsAt: string;
   timezone: string;
   capacityLimit: string;
+  allowPlusOnes: boolean;
 };
 
 export type CreateEventFormFieldErrors = Partial<Record<keyof CreateEventFormInput, string>>;
@@ -26,6 +27,16 @@ const nullIfEmpty = (value: string): string | null => {
   const normalized = value.trim();
   return normalized.length === 0 ? null : normalized;
 };
+
+export const createInitialCreateEventFormInput = (): CreateEventFormInput => ({
+  title: '',
+  description: '',
+  location: '',
+  startsAt: '',
+  timezone: '',
+  capacityLimit: '',
+  allowPlusOnes: false,
+});
 
 export const buildCreateEventPayloadFromForm = (input: CreateEventFormInput): CreateEventFormBuildResult => {
   const title = input.title.trim();
@@ -80,6 +91,7 @@ export const buildCreateEventPayloadFromForm = (input: CreateEventFormInput): Cr
       startsAt,
       timezone,
       capacityLimit,
+      allowPlusOnes: input.allowPlusOnes,
     },
   };
 };

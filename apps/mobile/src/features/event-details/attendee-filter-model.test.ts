@@ -15,6 +15,7 @@ const attendees: AttendeeListItem[] = [
     status: 'going',
     attendanceState: 'confirmed',
     waitlistPosition: null,
+    plusOnesCount: 0,
   },
   {
     key: 'a-waitlist-2',
@@ -23,6 +24,7 @@ const attendees: AttendeeListItem[] = [
     status: 'going',
     attendanceState: 'waitlisted',
     waitlistPosition: 2,
+    plusOnesCount: 0,
   },
   {
     key: 'a-maybe',
@@ -31,6 +33,7 @@ const attendees: AttendeeListItem[] = [
     status: 'maybe',
     attendanceState: 'not_attending',
     waitlistPosition: null,
+    plusOnesCount: 0,
   },
   {
     key: 'a-not-going',
@@ -39,6 +42,7 @@ const attendees: AttendeeListItem[] = [
     status: 'not_going',
     attendanceState: 'not_attending',
     waitlistPosition: null,
+    plusOnesCount: 0,
   },
 ];
 

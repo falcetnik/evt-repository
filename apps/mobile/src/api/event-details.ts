@@ -8,6 +8,7 @@ export type OrganizerEventDetailsResponse = {
   startsAt: string;
   timezone: string;
   capacityLimit: number | null;
+  allowPlusOnes: boolean;
   organizerUserId: string;
   createdAt: string;
   updatedAt: string;
@@ -33,6 +34,7 @@ export type OrganizerEventAttendeesResponse = {
     status: 'going' | 'maybe' | 'not_going';
     attendanceState: 'confirmed' | 'waitlisted' | 'not_attending';
     waitlistPosition: number | null;
+    plusOnesCount: number;
     createdAt: string;
     updatedAt: string;
   }>;

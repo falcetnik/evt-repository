@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAttendeeStatusLabel, type AttendeeListItem } from './attendee-row-model';
+import { buildAttendeePlusOnesLabel, buildAttendeeStatusLabel, type AttendeeListItem } from './attendee-row-model';
 
 const makeAttendee = (overrides: Partial<AttendeeListItem>): AttendeeListItem => ({
   key: 'attendee-1',
@@ -8,6 +8,7 @@ const makeAttendee = (overrides: Partial<AttendeeListItem>): AttendeeListItem =>
   status: 'going',
   attendanceState: 'confirmed',
   waitlistPosition: null,
+  plusOnesCount: 0,
   ...overrides,
 });
 
@@ -36,5 +37,17 @@ describe('attendee row model', () => {
     expect(
       buildAttendeeStatusLabel(makeAttendee({ status: 'not_going', attendanceState: 'not_attending' })),
     ).toBe('Not going');
+  });
+
+  it('returns null for zero plus-ones count', () => {
+    expect(buildAttendeePlusOnesLabel(makeAttendee({ plusOnesCount: 0 }))).toBeNull();
+  });
+
+  it('returns +1 for a single plus-one', () => {
+    expect(buildAttendeePlusOnesLabel(makeAttendee({ plusOnesCount: 1 }))).toBe('+1');
+  });
+
+  it('returns +N for multiple plus-ones', () => {
+    expect(buildAttendeePlusOnesLabel(makeAttendee({ plusOnesCount: 3 }))).toBe('+3');
   });
 });

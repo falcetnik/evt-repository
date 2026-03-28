@@ -8,6 +8,7 @@ export type UpdateEventInput = {
   startsAt?: string;
   timezone?: string;
   capacityLimit?: number | null;
+  allowPlusOnes: boolean;
 };
 
 export type UpdateEventResponse = OrganizerEventDetailsResponse;
