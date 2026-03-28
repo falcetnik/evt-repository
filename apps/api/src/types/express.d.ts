@@ -4,5 +4,7 @@ declare module 'express-serve-static-core' {
   interface Request {
     currentUser?: AuthUser;
     requestId?: string;
+    observabilityStartedAt?: bigint;
+    observabilityRecorded?: boolean;
   }
 }

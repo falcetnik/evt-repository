@@ -20,6 +20,7 @@ export class HttpObservabilityInterceptor implements NestInterceptor {
       route?: { path?: string };
       requestId?: string;
       currentUser?: { id: string };
+      observabilityRecorded?: boolean;
     }>();
     const response = context.switchToHttp().getResponse<{ statusCode: number }>();
 
@@ -31,6 +32,7 @@ export class HttpObservabilityInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap(() => {
         statusCodeForMetrics = response.statusCode;
+        request.observabilityRecorded = true;
 
         this.logRequest({
           requestId: request.requestId ?? null,
@@ -44,6 +46,7 @@ export class HttpObservabilityInterceptor implements NestInterceptor {
       catchError((error: unknown) => {
         const statusCode = resolveHttpErrorStatusCode(error, response.statusCode);
         statusCodeForMetrics = statusCode;
+        request.observabilityRecorded = true;
 
         console.error(
           JSON.stringify({

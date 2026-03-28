@@ -9,6 +9,7 @@ import { RequestIdMiddleware } from './request-id.middleware';
   controllers: [MetricsController],
   providers: [
     MetricsService,
+    RequestIdMiddleware,
     {
       provide: APP_INTERCEPTOR,
       useClass: HttpObservabilityInterceptor,

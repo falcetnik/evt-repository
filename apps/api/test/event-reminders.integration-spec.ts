@@ -45,7 +45,11 @@ describe('Event reminders API integration', () => {
     }
   });
 
-  async function createEvent(owner: string, startsAt = '2026-03-25T18:00:00.000Z') {
+  function futureIso(minutesFromNow: number) {
+    return new Date(Date.now() + minutesFromNow * 60 * 1000).toISOString();
+  }
+
+  async function createEvent(owner: string, startsAt = futureIso(60 * 48)) {
     const response = await request(app!.getHttpServer())
       .post('/api/v1/events')
       .set('x-dev-user-id', owner)
@@ -60,7 +64,8 @@ describe('Event reminders API integration', () => {
   }
 
   it('organizer can replace and read reminders for own event, ordered by sendAt asc', async () => {
-    const eventId = await createEvent('organizer-1');
+    const startsAt = futureIso(60 * 48);
+    const eventId = await createEvent('organizer-1', startsAt);
 
     const putResponse = await request(app!.getHttpServer())
       .put(`/api/v1/events/${eventId}/reminders`)
@@ -79,7 +84,7 @@ describe('Event reminders API integration', () => {
 
     expect(getResponse.body).toMatchObject({
       eventId,
-      startsAt: '2026-03-25T18:00:00.000Z',
+      startsAt,
       timezone: 'Europe/Moscow',
       total: 3,
     });
