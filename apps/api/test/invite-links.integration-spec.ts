@@ -145,6 +145,9 @@ describe('Invite links API integration', () => {
         total: 0,
         confirmedGoing: 0,
         waitlistedGoing: 0,
+        goingHeadcount: 0,
+        confirmedHeadcount: 0,
+        waitlistedHeadcount: 0,
         capacityLimit: 8,
         remainingSpots: 8,
         isFull: false,
@@ -183,6 +186,7 @@ describe('Invite links API integration', () => {
       guestName: 'Nikita',
       guestEmail: 'nikita@example.com',
       status: 'going',
+      plusOnesCount: 0,
       attendanceState: 'confirmed',
       waitlistPosition: null,
     });
@@ -191,7 +195,7 @@ describe('Invite links API integration', () => {
     expect(response.body.updatedAt).toEqual(expect.any(String));
 
     const attendeeRows = await client?.query(
-      'SELECT "guest_name", "guest_email", "response_status" FROM "event_attendees" WHERE "event_id" = $1',
+      'SELECT "guest_name", "guest_email", "response_status", "plus_ones_count" FROM "event_attendees" WHERE "event_id" = $1',
       [eventId],
     );
     expect(attendeeRows?.rows).toEqual([
@@ -199,6 +203,7 @@ describe('Invite links API integration', () => {
         guest_name: 'Nikita',
         guest_email: 'nikita@example.com',
         response_status: 'GOING',
+        plus_ones_count: 0,
       },
     ]);
   });
@@ -234,6 +239,7 @@ describe('Invite links API integration', () => {
     expect(updated.body.guestName).toBe('Nikita Updated');
     expect(updated.body.guestEmail).toBe('nikita@example.com');
     expect(updated.body.status).toBe('maybe');
+    expect(updated.body.plusOnesCount).toBe(0);
     expect(updated.body.attendanceState).toBe('not_attending');
     expect(updated.body.waitlistPosition).toBeNull();
 
@@ -320,6 +326,9 @@ describe('Invite links API integration', () => {
       total: 3,
       confirmedGoing: 1,
       waitlistedGoing: 0,
+      goingHeadcount: 1,
+      confirmedHeadcount: 1,
+      waitlistedHeadcount: 0,
       capacityLimit: 8,
       remainingSpots: 7,
       isFull: false,
@@ -373,6 +382,9 @@ describe('Invite links API integration', () => {
       total: 2,
       confirmedGoing: 1,
       waitlistedGoing: 0,
+      goingHeadcount: 1,
+      confirmedHeadcount: 1,
+      waitlistedHeadcount: 0,
       capacityLimit: 8,
       remainingSpots: 7,
       isFull: false,
@@ -381,6 +393,53 @@ describe('Invite links API integration', () => {
 
   it('returns 404 for unknown public invite token', async () => {
     await request(app!.getHttpServer()).get('/api/v1/invite-links/unknown-token').expect(404);
+  });
+
+  it('accepts plusOnesCount in RSVP when event allows plus ones', async () => {
+    const eventId = await createEventForOrganizer('organizer-1');
+
+    await request(app!.getHttpServer())
+      .patch(`/api/v1/events/${eventId}`)
+      .set('x-dev-user-id', 'organizer-1')
+      .send({ allowPlusOnes: true })
+      .expect(200);
+
+    const createInviteResponse = await request(app!.getHttpServer())
+      .post(`/api/v1/events/${eventId}/invite-link`)
+      .set('x-dev-user-id', 'organizer-1')
+      .expect(201);
+
+    const token = createInviteResponse.body.token as string;
+    const response = await request(app!.getHttpServer())
+      .post(`/api/v1/invite-links/${token}/rsvp`)
+      .send({
+        guestName: 'Nikita',
+        guestEmail: 'nikita@example.com',
+        status: 'going',
+        plusOnesCount: 2,
+      })
+      .expect(201);
+
+    expect(response.body.plusOnesCount).toBe(2);
+  });
+
+  it('rejects plusOnesCount > 0 in RSVP when event disallows plus ones', async () => {
+    const eventId = await createEventForOrganizer('organizer-1');
+    const createInviteResponse = await request(app!.getHttpServer())
+      .post(`/api/v1/events/${eventId}/invite-link`)
+      .set('x-dev-user-id', 'organizer-1')
+      .expect(201);
+
+    const token = createInviteResponse.body.token as string;
+    await request(app!.getHttpServer())
+      .post(`/api/v1/invite-links/${token}/rsvp`)
+      .send({
+        guestName: 'Nikita',
+        guestEmail: 'nikita@example.com',
+        status: 'going',
+        plusOnesCount: 1,
+      })
+      .expect(400);
   });
 
   it('returns 404 for inactive public invite token', async () => {

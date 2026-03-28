@@ -53,6 +53,7 @@ describe('Events API integration', () => {
         startsAt: '2026-03-20T16:30:00.000Z',
         timezone: 'Europe/Moscow',
         capacityLimit: 8,
+        allowPlusOnes: true,
       })
       .expect(201);
 
@@ -63,11 +64,31 @@ describe('Events API integration', () => {
       startsAt: '2026-03-20T16:30:00.000Z',
       timezone: 'Europe/Moscow',
       capacityLimit: 8,
+      allowPlusOnes: true,
       organizerUserId: 'organizer-1',
     });
     expect(response.body.id).toEqual(expect.any(String));
     expect(response.body.createdAt).toEqual(expect.any(String));
     expect(response.body.updatedAt).toEqual(expect.any(String));
+  });
+
+  it('defaults allowPlusOnes to false when omitted', async () => {
+    await client?.query('INSERT INTO "users" ("id", "display_name", "updated_at") VALUES ($1, $2, NOW())', [
+      'organizer-1',
+      'Organizer One',
+    ]);
+
+    const response = await request(app!.getHttpServer())
+      .post('/api/v1/events')
+      .set('x-dev-user-id', 'organizer-1')
+      .send({
+        title: 'Friday Board Games',
+        startsAt: '2026-03-20T16:30:00.000Z',
+        timezone: 'UTC',
+      })
+      .expect(201);
+
+    expect(response.body.allowPlusOnes).toBe(false);
   });
 
   it('returns 401 when x-dev-user-id is missing', async () => {
@@ -133,6 +154,7 @@ describe('Events API integration', () => {
 
     expect(getResponse.body.id).toBe(createResponse.body.id);
     expect(getResponse.body.organizerUserId).toBe('organizer-1');
+    expect(getResponse.body.allowPlusOnes).toBe(false);
   });
 
   it('returns 404 when another user fetches event', async () => {

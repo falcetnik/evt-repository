@@ -1,6 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AttendeeResponseStatus } from '@prisma/client';
-import { buildRsvpSummary, deriveAttendanceState, sortAttendeesForOrganizer } from '../attendance/attendance-summary';
+import {
+  buildGoingWaitlistPlacement,
+  buildRsvpSummary,
+  deriveAttendanceState,
+  getGoingHeadcount,
+  sortAttendeesForOrganizer,
+} from '../attendance/attendance-summary';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth-user.type';
 import { PrismaService } from '../database/prisma.service';
@@ -27,6 +33,7 @@ export class EventsService {
         startsAt: new Date(dto.startsAt),
         timezone: dto.timezone,
         capacityLimit: dto.capacityLimit ?? null,
+        allowPlusOnes: dto.allowPlusOnes ?? false,
       },
     });
 
@@ -42,6 +49,7 @@ export class EventsService {
         hasStartsAt: dto.startsAt !== undefined,
         hasTimezone: dto.timezone !== undefined,
         hasCapacityLimit: dto.capacityLimit !== undefined,
+        allowPlusOnes: dto.allowPlusOnes ?? false,
       },
     });
 
@@ -66,12 +74,14 @@ export class EventsService {
         startsAt: true,
         timezone: true,
         capacityLimit: true,
+        allowPlusOnes: true,
         createdAt: true,
         updatedAt: true,
         attendees: {
           select: {
             responseStatus: true,
             waitlistPosition: true,
+            plusOnesCount: true,
           },
         },
         inviteLinks: {
@@ -96,6 +106,7 @@ export class EventsService {
       startsAt: event.startsAt.toISOString(),
       timezone: event.timezone,
       capacityLimit: event.capacityLimit,
+      allowPlusOnes: event.allowPlusOnes,
       summary: buildRsvpSummary(event.attendees, event.capacityLimit),
       hasActiveInviteLink: event.inviteLinks.some(
         (inviteLink) => inviteLink.isActive && (inviteLink.expiresAt === null || inviteLink.expiresAt > now),
@@ -177,12 +188,13 @@ export class EventsService {
           starts_at: Date;
           timezone: string;
           capacity_limit: number | null;
+          allow_plus_ones: boolean;
           organizer_user_id: string;
           created_at: Date;
           updated_at: Date;
         }>
       >`
-        SELECT id, title, description, location_name, starts_at, timezone, capacity_limit, organizer_user_id, created_at, updated_at
+        SELECT id, title, description, location_name, starts_at, timezone, capacity_limit, allow_plus_ones, organizer_user_id, created_at, updated_at
         FROM events
         WHERE id = ${eventId} AND organizer_user_id = ${currentUser.id}
         FOR UPDATE
@@ -236,64 +248,23 @@ export class EventsService {
             responseStatus: true,
             waitlistPosition: true,
             createdAt: true,
+            plusOnesCount: true,
           },
         });
 
         const goingAttendees = attendees.filter((attendee) => attendee.responseStatus === AttendeeResponseStatus.GOING);
         const confirmedGoing = goingAttendees.filter((attendee) => attendee.waitlistPosition === null);
         const waitlistedGoingBefore = goingAttendees.filter((attendee) => attendee.waitlistPosition !== null);
-        const waitlistedBeforeIds = new Set(waitlistedGoingBefore.map((attendee) => attendee.id));
         const confirmedGoingBeforeCount = confirmedGoing.length;
         const waitlistedGoingBeforeCount = waitlistedGoingBefore.length;
+        const confirmedHeadcountBefore = confirmedGoing.reduce((total, attendee) => total + getGoingHeadcount(attendee.plusOnesCount), 0);
 
-        if (dto.capacityLimit !== null && dto.capacityLimit !== undefined && dto.capacityLimit < confirmedGoing.length) {
-          throw new BadRequestException('capacityLimit cannot be below confirmed going attendees');
+        if (dto.capacityLimit !== null && dto.capacityLimit !== undefined && dto.capacityLimit < confirmedHeadcountBefore) {
+          throw new BadRequestException('capacityLimit cannot be below confirmed headcount');
         }
 
-        const waitlistedGoing = waitlistedGoingBefore
-          .sort((left, right) => {
-            if ((left.waitlistPosition ?? 0) !== (right.waitlistPosition ?? 0)) {
-              return (left.waitlistPosition ?? 0) - (right.waitlistPosition ?? 0);
-            }
-            if (left.createdAt.getTime() !== right.createdAt.getTime()) {
-              return left.createdAt.getTime() - right.createdAt.getTime();
-            }
-            return left.id.localeCompare(right.id);
-          });
-
-        const confirmedIds = new Set<string>(confirmedGoing.map((attendee) => attendee.id));
-        if (dto.capacityLimit === null) {
-          for (const attendee of goingAttendees) {
-            confirmedIds.add(attendee.id);
-          }
-        } else if (dto.capacityLimit !== undefined) {
-          const seatsToFill = Math.max(dto.capacityLimit - confirmedGoing.length, 0);
-          for (let index = 0; index < seatsToFill && index < waitlistedGoing.length; index += 1) {
-            confirmedIds.add(waitlistedGoing[index]!.id);
-          }
-        }
-
-        const waitlistedIds = goingAttendees
-          .filter((attendee) => !confirmedIds.has(attendee.id))
-          .sort((left, right) => {
-            if ((left.waitlistPosition ?? 0) !== (right.waitlistPosition ?? 0)) {
-              return (left.waitlistPosition ?? 0) - (right.waitlistPosition ?? 0);
-            }
-            if (left.createdAt.getTime() !== right.createdAt.getTime()) {
-              return left.createdAt.getTime() - right.createdAt.getTime();
-            }
-            return left.id.localeCompare(right.id);
-          });
-
-        const nextWaitlistPositionById = new Map<string, number | null>();
-        for (const attendee of attendees) {
-          if (attendee.responseStatus !== AttendeeResponseStatus.GOING || confirmedIds.has(attendee.id)) {
-            nextWaitlistPositionById.set(attendee.id, null);
-          }
-        }
-        waitlistedIds.forEach((attendee, index) => {
-          nextWaitlistPositionById.set(attendee.id, index + 1);
-        });
+        const nextCapacityLimit = dto.capacityLimit ?? eventRow.capacity_limit;
+        const nextWaitlistPositionById = buildGoingWaitlistPlacement(attendees, nextCapacityLimit);
 
         for (const attendee of attendees) {
           const nextWaitlistPosition = nextWaitlistPositionById.get(attendee.id) ?? null;
@@ -310,13 +281,7 @@ export class EventsService {
           return waitlistPosition === null;
         }).length;
         const waitlistedGoingAfterCount = goingAttendees.length - confirmedGoingAfterCount;
-        const promotedCount = goingAttendees.filter((attendee) => {
-          if (!waitlistedBeforeIds.has(attendee.id)) {
-            return false;
-          }
-          const waitlistPosition = nextWaitlistPositionById.get(attendee.id) ?? null;
-          return waitlistPosition === null;
-        }).length;
+        const promotedCount = 0;
         const placementChanged = attendees.some((attendee) => {
           const nextWaitlistPosition = nextWaitlistPositionById.get(attendee.id) ?? null;
           return attendee.waitlistPosition !== nextWaitlistPosition;
@@ -349,6 +314,7 @@ export class EventsService {
         startsAt?: Date;
         timezone?: string;
         capacityLimit?: number | null;
+        allowPlusOnes?: boolean;
       } = {};
 
       if (dto.title !== undefined) {
@@ -368,6 +334,22 @@ export class EventsService {
       }
       if (hasCapacityLimitField) {
           updateData.capacityLimit = dto.capacityLimit;
+      }
+      if (dto.allowPlusOnes !== undefined) {
+        if (dto.allowPlusOnes === false && eventRow.allow_plus_ones) {
+          const attendeesWithPlusOnes = await tx.eventAttendee.count({
+            where: {
+              eventId,
+              plusOnesCount: { gt: 0 },
+            },
+          });
+
+          if (attendeesWithPlusOnes > 0) {
+            throw new BadRequestException('allowPlusOnes cannot be disabled while attendees have plus ones');
+          }
+        }
+
+        updateData.allowPlusOnes = dto.allowPlusOnes;
       }
 
       if (Object.keys(updateData).length === 0) {
@@ -389,6 +371,7 @@ export class EventsService {
         changedFields: Object.keys(dto).sort(),
         startsAtChanged: dto.startsAt !== undefined,
         capacityLimitChanged: dto.capacityLimit !== undefined,
+        allowPlusOnesChanged: dto.allowPlusOnes !== undefined,
       },
     });
 
@@ -399,6 +382,7 @@ export class EventsService {
     const event = await this.findOwnedEvent(currentUser, eventId, {
       id: true,
       capacityLimit: true,
+      allowPlusOnes: true,
     });
 
     const attendees = await this.prisma.client.eventAttendee.findMany({
@@ -409,6 +393,7 @@ export class EventsService {
         guestEmail: true,
         responseStatus: true,
         waitlistPosition: true,
+        plusOnesCount: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -422,6 +407,7 @@ export class EventsService {
       guestName: attendee.guestName,
       guestEmail: attendee.guestEmail,
       status: this.toApiStatus(attendee.responseStatus),
+      plusOnesCount: attendee.plusOnesCount,
       attendanceState: deriveAttendanceState(attendee.responseStatus, attendee.waitlistPosition),
       waitlistPosition: attendee.waitlistPosition,
       createdAt: attendee.createdAt.toISOString(),
@@ -653,6 +639,7 @@ export class EventsService {
     startsAt: Date;
     timezone: string;
     capacityLimit: number | null;
+    allowPlusOnes: boolean;
     organizerUserId: string;
     createdAt: Date;
     updatedAt: Date;
@@ -665,6 +652,7 @@ export class EventsService {
       startsAt: event.startsAt.toISOString(),
       timezone: event.timezone,
       capacityLimit: event.capacityLimit,
+      allowPlusOnes: event.allowPlusOnes,
       organizerUserId: event.organizerUserId,
       createdAt: event.createdAt.toISOString(),
       updatedAt: event.updatedAt.toISOString(),

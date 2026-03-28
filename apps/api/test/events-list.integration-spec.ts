@@ -57,15 +57,16 @@ describe('Events list API integration', () => {
           "timezone",
           "location_name",
           "capacity_limit",
+          "allow_plus_ones",
           "updated_at"
       )
         VALUES
-         ('evt-up-1', 'organizer-1', 'Upcoming One', 'desc one', '2099-01-01T10:00:00.000Z', 'UTC', 'Loc 1', 2, NOW()),
-         ('evt-up-2', 'organizer-1', 'Upcoming Two', NULL, '2099-01-01T10:00:00.000Z', 'UTC', NULL, NULL, NOW()),
-         ('evt-up-3', 'organizer-1', 'Upcoming Three', 'desc three', '2099-01-02T10:00:00.000Z', 'UTC', 'Loc 3', 5, NOW()),
-         ('evt-past-1', 'organizer-1', 'Past One', NULL, '2000-01-01T08:00:00.000Z', 'UTC', 'Past 1', 4, NOW()),
-         ('evt-past-2', 'organizer-1', 'Past Two', NULL, '2000-01-01T08:00:00.000Z', 'UTC', 'Past 2', 4, NOW()),
-         ('evt-other-up', 'organizer-2', 'Other Organizer Upcoming', NULL, '2099-01-01T10:00:00.000Z', 'UTC', NULL, NULL, NOW())`,
+         ('evt-up-1', 'organizer-1', 'Upcoming One', 'desc one', '2099-01-01T10:00:00.000Z', 'UTC', 'Loc 1', 2, true, NOW()),
+         ('evt-up-2', 'organizer-1', 'Upcoming Two', NULL, '2099-01-01T10:00:00.000Z', 'UTC', NULL, NULL, false, NOW()),
+         ('evt-up-3', 'organizer-1', 'Upcoming Three', 'desc three', '2099-01-02T10:00:00.000Z', 'UTC', 'Loc 3', 5, false, NOW()),
+         ('evt-past-1', 'organizer-1', 'Past One', NULL, '2000-01-01T08:00:00.000Z', 'UTC', 'Past 1', 4, false, NOW()),
+         ('evt-past-2', 'organizer-1', 'Past Two', NULL, '2000-01-01T08:00:00.000Z', 'UTC', 'Past 2', 4, false, NOW()),
+         ('evt-other-up', 'organizer-2', 'Other Organizer Upcoming', NULL, '2099-01-01T10:00:00.000Z', 'UTC', NULL, NULL, false, NOW())`,
     );
 
     await client?.query(
@@ -129,6 +130,7 @@ describe('Events list API integration', () => {
       startsAt: '2099-01-01T10:00:00.000Z',
       timezone: 'UTC',
       capacityLimit: 2,
+      allowPlusOnes: true,
       hasActiveInviteLink: true,
       activeReminderCount: 2,
       summary: {
@@ -138,6 +140,9 @@ describe('Events list API integration', () => {
         total: 4,
         confirmedGoing: 1,
         waitlistedGoing: 1,
+        goingHeadcount: 2,
+        confirmedHeadcount: 1,
+        waitlistedHeadcount: 1,
         capacityLimit: 2,
         remainingSpots: 1,
         isFull: false,

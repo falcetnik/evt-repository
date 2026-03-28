@@ -1,7 +1,7 @@
 import { AttendeeResponseStatus } from '@prisma/client';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
-import { buildRsvpSummary, deriveAttendanceState } from '../attendance/attendance-summary';
+import { buildGoingWaitlistPlacement, buildRsvpSummary, deriveAttendanceState } from '../attendance/attendance-summary';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../auth/auth-user.type';
 import { PrismaService } from '../database/prisma.service';
@@ -97,8 +97,8 @@ export class InviteLinksService {
     const status = this.toDbStatus(dto.status);
 
     const result = await this.prisma.client.$transaction(async (tx) => {
-      const lockedEvent = await tx.$queryRaw<Array<{ id: string; capacity_limit: number | null }>>`
-        SELECT id, capacity_limit
+      const lockedEvent = await tx.$queryRaw<Array<{ id: string; capacity_limit: number | null; allow_plus_ones: boolean }>>`
+        SELECT id, capacity_limit, allow_plus_ones
         FROM events
         WHERE id = ${link.eventId}
         FOR UPDATE
@@ -108,17 +108,12 @@ export class InviteLinksService {
         throw new NotFoundException('Event not found');
       }
 
-      const attendeesBefore = await tx.eventAttendee.findMany({
-        where: { eventId: link.eventId },
-        select: {
-          id: true,
-          responseStatus: true,
-          waitlistPosition: true,
-          createdAt: true,
-        },
-      });
+      const plusOnesCount = dto.plusOnesCount ?? 0;
+      const allowPlusOnes = Boolean(lockedEvent[0]?.allow_plus_ones);
 
-      const beforeById = new Map(attendeesBefore.map((attendee) => [attendee.id, attendee]));
+      if (!allowPlusOnes && plusOnesCount > 0) {
+        throw new BadRequestException('plusOnesCount must be 0 when event does not allow plus ones');
+      }
 
       const existingAttendee = await tx.eventAttendee.findUnique({
         where: {
@@ -137,6 +132,7 @@ export class InviteLinksService {
             data: {
               guestName: dto.guestName,
               responseStatus: status,
+              plusOnesCount,
             },
           })
         : await tx.eventAttendee.create({
@@ -145,6 +141,7 @@ export class InviteLinksService {
               guestName: dto.guestName,
               guestEmail: dto.guestEmail,
               responseStatus: status,
+              plusOnesCount,
             },
           });
 
@@ -155,118 +152,13 @@ export class InviteLinksService {
           responseStatus: true,
           waitlistPosition: true,
           createdAt: true,
+          plusOnesCount: true,
         },
       });
 
       const capacityLimit = lockedEvent[0]?.capacity_limit ?? null;
 
-      const isGoing = (responseStatus: AttendeeResponseStatus) => responseStatus === AttendeeResponseStatus.GOING;
-
-      const priorPlacement = (attendeeId: string): 'confirmed' | 'waitlisted' | 'other' => {
-        const previous = beforeById.get(attendeeId);
-        if (!previous || !isGoing(previous.responseStatus)) {
-          return 'other';
-        }
-        if (previous.waitlistPosition !== null) {
-          return 'waitlisted';
-        }
-        return 'confirmed';
-      };
-
-      const incumbentConfirmed = attendeesAfter
-        .filter((attendee) => isGoing(attendee.responseStatus) && priorPlacement(attendee.id) === 'confirmed')
-        .sort((left, right) => {
-          if (left.createdAt.getTime() !== right.createdAt.getTime()) {
-            return left.createdAt.getTime() - right.createdAt.getTime();
-          }
-          return left.id.localeCompare(right.id);
-        });
-
-      const waitlistQueue = attendeesAfter
-        .filter((attendee) => isGoing(attendee.responseStatus) && priorPlacement(attendee.id) !== 'confirmed')
-        .sort((left, right) => {
-          const leftPlacement = priorPlacement(left.id);
-          const rightPlacement = priorPlacement(right.id);
-
-          if (leftPlacement !== rightPlacement) {
-            return leftPlacement === 'waitlisted' ? -1 : 1;
-          }
-
-          if (leftPlacement === 'waitlisted' && rightPlacement === 'waitlisted') {
-            if (left.waitlistPosition !== right.waitlistPosition) {
-              return (left.waitlistPosition ?? 0) - (right.waitlistPosition ?? 0);
-            }
-            return left.id.localeCompare(right.id);
-          }
-
-          if (left.createdAt.getTime() !== right.createdAt.getTime()) {
-            return left.createdAt.getTime() - right.createdAt.getTime();
-          }
-
-          return left.id.localeCompare(right.id);
-        });
-
-      const confirmedIds = new Set<string>();
-
-      if (capacityLimit === null) {
-        for (const attendee of attendeesAfter) {
-          if (isGoing(attendee.responseStatus)) {
-            confirmedIds.add(attendee.id);
-          }
-        }
-      } else {
-        for (const attendee of incumbentConfirmed) {
-          if (confirmedIds.size >= capacityLimit) {
-            break;
-          }
-          confirmedIds.add(attendee.id);
-        }
-
-        for (const attendee of waitlistQueue) {
-          if (confirmedIds.size >= capacityLimit) {
-            break;
-          }
-          confirmedIds.add(attendee.id);
-        }
-      }
-
-      const waitlistIds = attendeesAfter
-        .filter((attendee) => isGoing(attendee.responseStatus) && !confirmedIds.has(attendee.id))
-        .sort((left, right) => {
-          const leftPlacement = priorPlacement(left.id);
-          const rightPlacement = priorPlacement(right.id);
-
-          if (leftPlacement !== rightPlacement) {
-            return leftPlacement === 'waitlisted' ? -1 : 1;
-          }
-
-          if (leftPlacement === 'waitlisted' && rightPlacement === 'waitlisted') {
-            if (left.waitlistPosition !== right.waitlistPosition) {
-              return (left.waitlistPosition ?? 0) - (right.waitlistPosition ?? 0);
-            }
-            return left.id.localeCompare(right.id);
-          }
-
-          if (left.createdAt.getTime() !== right.createdAt.getTime()) {
-            return left.createdAt.getTime() - right.createdAt.getTime();
-          }
-
-          return left.id.localeCompare(right.id);
-        })
-        .map((attendee) => attendee.id);
-
-      const nextWaitlistPositionById = new Map<string, number | null>();
-      for (const attendee of attendeesAfter) {
-        if (attendee.responseStatus !== AttendeeResponseStatus.GOING) {
-          nextWaitlistPositionById.set(attendee.id, null);
-        } else if (confirmedIds.has(attendee.id)) {
-          nextWaitlistPositionById.set(attendee.id, null);
-        }
-      }
-
-      waitlistIds.forEach((attendeeId, index) => {
-        nextWaitlistPositionById.set(attendeeId, index + 1);
-      });
+      const nextWaitlistPositionById = buildGoingWaitlistPlacement(attendeesAfter, capacityLimit);
 
       for (const attendee of attendeesAfter) {
         const nextWaitlistPosition = nextWaitlistPositionById.get(attendee.id) ?? null;
@@ -291,6 +183,7 @@ export class InviteLinksService {
         metadata: {
           attendeeId: finalAttendee.id,
           status: this.toApiStatus(finalAttendee.responseStatus),
+          plusOnesCount: finalAttendee.plusOnesCount,
           attendanceState: deriveAttendanceState(finalAttendee.responseStatus, finalAttendee.waitlistPosition),
           waitlistPosition: finalAttendee.waitlistPosition,
         },
@@ -379,6 +272,7 @@ export class InviteLinksService {
     guestName: string | null;
     guestEmail: string | null;
     responseStatus: AttendeeResponseStatus;
+    plusOnesCount: number;
     waitlistPosition: number | null;
     createdAt: Date;
     updatedAt: Date;
@@ -389,6 +283,7 @@ export class InviteLinksService {
       guestName: attendee.guestName,
       guestEmail: attendee.guestEmail,
       status: this.toApiStatus(attendee.responseStatus),
+      plusOnesCount: attendee.plusOnesCount,
       attendanceState: deriveAttendanceState(attendee.responseStatus, attendee.waitlistPosition),
       waitlistPosition: attendee.waitlistPosition,
       createdAt: attendee.createdAt.toISOString(),
@@ -402,6 +297,7 @@ export class InviteLinksService {
       select: {
         responseStatus: true,
         waitlistPosition: true,
+        plusOnesCount: true,
       },
     });
 

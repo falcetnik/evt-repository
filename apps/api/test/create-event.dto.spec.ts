@@ -11,16 +11,29 @@ const validateDto = (payload: Record<string, unknown>) => {
 
 describe('CreateEventDto', () => {
   it('accepts a valid payload', () => {
-    const { errors } = validateDto({
+    const { dto, errors } = validateDto({
       title: '  Friday Board Games  ',
       description: 'Bring drinks if you want',
       location: 'Prospekt Mira 10',
       startsAt: '2026-03-20T16:30:00.000Z',
       timezone: 'Europe/Moscow',
       capacityLimit: 8,
+      allowPlusOnes: true,
     });
 
     expect(errors).toHaveLength(0);
+    expect(dto.allowPlusOnes).toBe(true);
+  });
+
+  it('accepts omitted allowPlusOnes field', () => {
+    const { dto, errors } = validateDto({
+      title: 'Friday Board Games',
+      startsAt: '2026-03-20T16:30:00.000Z',
+      timezone: 'UTC',
+    });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.allowPlusOnes).toBeUndefined();
   });
 
   it('normalizes blank optional strings to null', () => {
@@ -68,4 +81,5 @@ describe('CreateEventDto', () => {
 
     expect(errors.some((error) => error.property === 'unexpected')).toBe(true);
   });
+
 });
